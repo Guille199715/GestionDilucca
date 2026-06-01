@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestion de Muebleria</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <div class="sidebar-top">
+          <div class="brand">
+            <span class="brand-mark">DL</span>
+            <div>
+              <h1>DiLucca</h1>
+              <p>Gestion de muebleria</p>
+            </div>
+          </div>
+
+          <button class="menu-toggle" type="button" id="menu-toggle" aria-controls="main-nav" aria-expanded="false" aria-label="Abrir menu">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+        </div>
+
+        <nav class="nav-tabs" id="main-nav" aria-label="Secciones">
+          <button class="nav-tab active" type="button" data-view="dashboard">Resumen</button>
+          <button class="nav-tab" type="button" data-view="supplies">Insumos</button>
+          <button class="nav-tab" type="button" data-view="wood">Madera</button>
+          <button class="nav-tab" type="button" data-view="furniture">Muebles</button>
+          <button class="nav-tab" type="button" data-view="invoices">Facturas</button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <section class="view active" id="dashboard" aria-labelledby="dashboard-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Panel de control</p>
+              <h2 id="dashboard-title">Resumen general</h2>
+            </div>
+          </div>
+
+          <div class="metric-grid" aria-label="Indicadores">
+            <article class="metric-card">
+              <span>Insumos</span>
+              <strong id="metric-supplies-count">0</strong>
+              <small id="metric-supplies-value">$0</small>
+            </article>
+            <article class="metric-card">
+              <span>Madera util</span>
+              <strong id="metric-wood-area">0 m2</strong>
+              <small id="metric-wood-value">$0 usados</small>
+            </article>
+            <article class="metric-card">
+              <span>Precio unitario promedio</span>
+              <strong id="metric-average-unit">$0</strong>
+              <small>insumos cargados</small>
+            </article>
+            <article class="metric-card">
+              <span>Espesores activos</span>
+              <strong id="metric-thickness-count">0</strong>
+              <small>en stock de madera</small>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel">
+              <div class="panel-title">
+                <h3>Ultimos insumos</h3>
+              </div>
+              <div class="compact-list" id="latest-supplies"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-title">
+                <h3>Madera util por espesor</h3>
+              </div>
+              <div class="compact-list" id="wood-by-thickness"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="supplies" aria-labelledby="supplies-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Costos variables</p>
+              <h2 id="supplies-title">Insumos</h2>
+            </div>
+            <div class="toolbar">
+              <input id="supply-search" type="search" placeholder="Buscar insumo" autocomplete="off" />
+              <button class="danger-button" type="button" id="clear-supplies">Vaciar</button>
+            </div>
+          </div>
+
+          <form class="entry-form" id="supply-form" autocomplete="off">
+            <input type="hidden" id="supply-id" />
+            <label>
+              <span>Insumo</span>
+              <input id="supply-name" type="text" required placeholder="Ej: tornillos 4x40" />
+            </label>
+            <label>
+              <span>Categoria</span>
+              <input id="supply-category" type="text" placeholder="Ej: herrajes" />
+            </label>
+            <label>
+              <span>Cantidad del pack</span>
+              <input id="supply-pack-qty" type="number" min="0.01" step="0.01" required />
+            </label>
+            <label>
+              <span>Unidad</span>
+              <input id="supply-unit" type="text" list="unit-options" value="UN" required placeholder="UN" />
+            </label>
+            <label>
+              <span>Precio pagado</span>
+              <input id="supply-pack-price" type="number" min="0" step="0.01" required />
+            </label>
+            <label>
+              <span>Stock de packs</span>
+              <input id="supply-stock" type="number" min="0" step="0.01" value="1" />
+            </label>
+            <label>
+              <span>Proveedor</span>
+              <input id="supply-supplier" type="text" placeholder="Opcional" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="supply-submit">Agregar insumo</button>
+              <button class="secondary-button hidden" type="button" id="supply-cancel">Cancelar</button>
+            </div>
+            <datalist id="unit-options">
+              <option value="UN"></option>
+              <option value="M2"></option>
+              <option value="M"></option>
+              <option value="LT"></option>
+              <option value="KG"></option>
+              <option value="ML"></option>
+              <option value="PAR"></option>
+              <option value="CAJA"></option>
+            </datalist>
+          </form>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Listado de insumos</h3>
+              <span id="supply-count-label">0 items</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table supplies-table">
+                <thead>
+                  <tr>
+                    <th>Insumo</th>
+                    <th>Categoria</th>
+                    <th>Pack</th>
+                    <th>Precio pack</th>
+                    <th>Precio unidad</th>
+                    <th>Stock packs</th>
+                    <th>Valor stock</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="supply-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="wood" aria-labelledby="wood-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Placas y tableros</p>
+              <h2 id="wood-title">Madera</h2>
+            </div>
+            <div class="toolbar">
+              <input id="wood-search" type="search" placeholder="Buscar tipo, color o proveedor" autocomplete="off" />
+              <button class="danger-button" type="button" id="clear-wood">Vaciar</button>
+            </div>
+          </div>
+
+          <form class="entry-form wood-form" id="wood-form" autocomplete="off">
+            <input type="hidden" id="wood-id" />
+            <label>
+              <span>Tipo</span>
+              <input id="wood-type" type="text" required placeholder="Ej: MDF" />
+            </label>
+            <label>
+              <span>Espesor mm</span>
+              <input id="wood-thickness" type="number" min="1" step="1" required />
+            </label>
+            <label>
+              <span>Color</span>
+              <input id="wood-color" type="text" required placeholder="Ej: blanco seda" />
+            </label>
+            <label>
+              <span>Proveedor</span>
+              <input id="wood-supplier" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>m2 comprados</span>
+              <input id="wood-area" type="number" min="0.01" step="0.01" required />
+            </label>
+            <label>
+              <span>Precio pagado</span>
+              <input id="wood-price" type="number" min="0" step="0.01" required />
+            </label>
+            <label>
+              <span>m2 utiles</span>
+              <input id="wood-used" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="wood-submit">Agregar madera</button>
+              <button class="secondary-button hidden" type="button" id="wood-cancel">Cancelar</button>
+            </div>
+          </form>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Stock de madera</h3>
+              <span id="wood-count-label">0 lotes</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table wood-table">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Espesor</th>
+                    <th>Color</th>
+                    <th>Proveedor</th>
+                    <th>m2 compra</th>
+                    <th>m2 utiles</th>
+                    <th>Desperdicio</th>
+                    <th>Costo m2 util</th>
+                    <th>Costo usado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="wood-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="furniture" aria-labelledby="furniture-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Costeo de trabajos</p>
+              <h2 id="furniture-title">Muebles</h2>
+            </div>
+            <div class="toolbar">
+              <button class="primary-button" type="button" id="show-furniture-form">Agregar mueble</button>
+              <input id="furniture-search" type="search" placeholder="Buscar mueble" autocomplete="off" />
+              <button class="danger-button" type="button" id="clear-furniture">Vaciar</button>
+            </div>
+          </div>
+
+          <form class="entry-form furniture-form hidden" id="furniture-form" autocomplete="off">
+            <input type="hidden" id="furniture-id" />
+            <label>
+              <span>Mueble</span>
+              <input id="furniture-name" type="text" required placeholder="Ej: bajo mesada" />
+            </label>
+            <label>
+              <span>Detalle</span>
+              <input id="furniture-notes" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Foto</span>
+              <input id="furniture-photo" type="file" accept="image/*" />
+            </label>
+            <div class="photo-preview hidden" id="furniture-photo-preview">
+              <img id="furniture-photo-image" alt="Foto del mueble" />
+              <button class="table-action delete" type="button" id="remove-furniture-photo">Quitar foto</button>
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="furniture-submit">Guardar mueble</button>
+              <button class="secondary-button hidden" type="button" id="furniture-cancel">Cancelar</button>
+            </div>
+          </form>
+
+          <div class="builder-grid hidden" id="furniture-builder">
+            <section class="panel line-panel">
+              <div class="panel-title">
+                <h3>Insumos del mueble</h3>
+                <button class="secondary-button" type="button" id="add-furniture-supply">Agregar insumo</button>
+              </div>
+              <div class="line-list" id="furniture-supply-lines"></div>
+            </section>
+
+            <section class="panel line-panel">
+              <div class="panel-title">
+                <h3>Madera del mueble</h3>
+                <button class="secondary-button" type="button" id="add-furniture-wood">Agregar madera</button>
+              </div>
+              <div class="line-list" id="furniture-wood-lines"></div>
+            </section>
+
+            <section class="panel total-panel" aria-label="Costo calculado">
+              <span>Costo total</span>
+              <strong id="furniture-total">$0</strong>
+              <small id="furniture-total-detail">Sin items seleccionados</small>
+            </section>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Muebles costeados</h3>
+              <span id="furniture-count-label">0 muebles</span>
+            </div>
+            <div class="furniture-grid" id="furniture-table"></div>
+          </section>
+        </section>
+
+        <section class="view" id="invoices" aria-labelledby="invoices-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Ventas y entregas</p>
+              <h2 id="invoices-title">Facturas</h2>
+            </div>
+            <div class="toolbar">
+              <button class="primary-button" type="button" id="show-invoice-form">Agregar factura</button>
+              <input id="invoice-search" type="search" placeholder="Buscar factura" autocomplete="off" />
+              <button class="danger-button" type="button" id="clear-invoices">Vaciar</button>
+            </div>
+          </div>
+
+          <form class="entry-form invoice-form hidden" id="invoice-form" autocomplete="off">
+            <input type="hidden" id="invoice-id" />
+            <label>
+              <span>Mueble</span>
+              <select id="invoice-furniture" required></select>
+            </label>
+            <label>
+              <span>Cliente</span>
+              <input id="invoice-client" type="text" required placeholder="Nombre del cliente" />
+            </label>
+            <label>
+              <span>Telefono</span>
+              <input id="invoice-phone" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Fecha</span>
+              <input id="invoice-date" type="date" />
+            </label>
+            <label>
+              <span>Precio en factura</span>
+              <input id="invoice-price" type="number" min="0" step="0.01" required />
+            </label>
+            <label>
+              <span>Envio</span>
+              <select id="invoice-shipping-required">
+                <option value="no">No</option>
+                <option value="yes">Si</option>
+              </select>
+            </label>
+            <label>
+              <span>Precio envio</span>
+              <input id="invoice-shipping-price" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
+              <span>Ubicacion envio</span>
+              <input id="invoice-location" type="text" placeholder="Direccion o zona" />
+            </label>
+            <label>
+              <span>Pago</span>
+              <select id="invoice-payment">
+                <option value="Transferencia">Transferencia</option>
+                <option value="Efectivo">Efectivo</option>
+              </select>
+            </label>
+            <label>
+              <span>Notas</span>
+              <input id="invoice-notes" type="text" placeholder="Opcional" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="invoice-submit">Guardar factura</button>
+              <button class="secondary-button hidden" type="button" id="invoice-cancel">Cancelar</button>
+            </div>
+          </form>
+
+          <div class="invoice-summary-grid hidden" id="invoice-builder">
+            <article class="metric-card">
+              <span>Costo mueble</span>
+              <strong id="invoice-cost">$0</strong>
+              <small>segun mueble elegido</small>
+            </article>
+            <article class="metric-card">
+              <span>Total factura</span>
+              <strong id="invoice-total">$0</strong>
+              <small>precio + envio</small>
+            </article>
+            <article class="metric-card">
+              <span>Ganancia</span>
+              <strong id="invoice-profit">$0</strong>
+              <small>precio - costo</small>
+            </article>
+            <article class="metric-card">
+              <span>Envio</span>
+              <strong id="invoice-shipping-label">$0</strong>
+              <small id="invoice-shipping-location">sin envio</small>
+            </article>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Facturas cargadas</h3>
+              <span id="invoice-count-label">0 facturas</span>
+            </div>
+            <div class="invoice-grid" id="invoice-table"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="empty-state-template">
+      <tr>
+        <td class="empty-state" colspan="9">Sin registros cargados.</td>
+      </tr>
+    </template>
+
+    <div class="modal-backdrop hidden" id="app-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" id="modal-eyebrow">Detalle</p>
+            <h2 id="modal-title">Mueble</h2>
+          </div>
+          <button class="table-action" type="button" id="modal-close">Cerrar</button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+        <div class="modal-actions hidden" id="modal-actions">
+          <button class="secondary-button" type="button" id="modal-cancel">No</button>
+          <button class="primary-button" type="button" id="modal-confirm">Si</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
