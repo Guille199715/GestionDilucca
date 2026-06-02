@@ -1,7 +1,7 @@
 const STORAGE_KEY = "dilucca-management-v1";
 const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
-const FIREBASE_COLLECTIONS = ["supplies", "wood", "furniture", "invoices"];
+const FIREBASE_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "orders"];
 
 const sampleData = {
   supplies: [
@@ -30,7 +30,7 @@ const sampleData = {
     {
       id: "supply-3",
       name: "Canto PVC blanco 22 mm",
-      category: "Terminacion",
+      category: "Terminación",
       packQty: 50,
       unit: "M",
       packPrice: 29500,
@@ -73,7 +73,15 @@ const sampleData = {
         { supplyId: "supply-2", qty: 6 },
         { supplyId: "supply-3", qty: 8 },
       ],
-      wood: [{ woodId: "wood-1", qty: 3.4 }],
+      wood: [
+        {
+          woodId: "wood-1",
+          cuts: [
+            { lengthMm: 1800, widthMm: 600, qty: 2 },
+            { lengthMm: 900, widthMm: 500, qty: 2 },
+          ],
+        },
+      ],
       createdAt: "2026-05-22T12:00:00.000Z",
     },
   ],
@@ -82,7 +90,7 @@ const sampleData = {
       id: "invoice-1",
       furnitureId: "furniture-1",
       client: "Cliente ejemplo",
-      phone: "Sin telefono",
+      phone: "Sin teléfono",
       date: "2026-06-01",
       price: 185000,
       shippingRequired: true,
@@ -93,10 +101,13 @@ const sampleData = {
       createdAt: "2026-06-01T12:00:00.000Z",
     },
   ],
+  orders: [],
 };
 
 const state = loadState();
 let furnitureDraft = createFurnitureDraft();
+let orderDraft = [];
+let currentOrderId = "";
 let modalConfirmAction = null;
 let currentFurniturePhoto = "";
 let storageWarningShown = false;
@@ -221,6 +232,22 @@ const elements = {
     shippingLabel: $("#invoice-shipping-label"),
     shippingLocation: $("#invoice-shipping-location"),
   },
+  orders: {
+    form: $("#order-form"),
+    name: $("#order-name"),
+    furniture: $("#order-furniture"),
+    qty: $("#order-qty"),
+    table: $("#order-table"),
+    count: $("#order-count-label"),
+    itemsCount: $("#order-items-count"),
+    totalQty: $("#order-total-qty"),
+    totalCost: $("#order-total-cost"),
+    clear: $("#clear-order"),
+    save: $("#save-order"),
+    export: $("#export-order"),
+    savedTable: $("#saved-order-table"),
+    savedCount: $("#saved-order-count-label"),
+  },
   metrics: {
     suppliesCount: $("#metric-supplies-count"),
     suppliesValue: $("#metric-supplies-value"),
@@ -246,13 +273,14 @@ const elements = {
     form: $("#login-form"),
     email: $("#login-email"),
     password: $("#login-password"),
+    passwordToggle: $("#login-password-toggle"),
     submit: $("#login-submit"),
     message: $("#login-message"),
   },
 };
 
 function emptyState() {
-  return { supplies: [], wood: [], furniture: [], invoices: [] };
+  return { supplies: [], wood: [], furniture: [], invoices: [], orders: [] };
 }
 
 function normalizeState(source = emptyState()) {
@@ -320,7 +348,7 @@ function persistLocalState() {
       state.furniture = lighterState.furniture;
       currentFurniturePhoto = "";
       showStorageWarning(
-        "El navegador no tenia espacio para guardar las fotos. Guarde los datos sin fotos para no perder insumos, madera, muebles y facturas.",
+        "El navegador no tenía espacio para guardar las fotos. Guardé los datos sin fotos para no perder insumos, madera, muebles y facturas.",
       );
       return true;
     } catch {
@@ -344,14 +372,45 @@ function createId(prefix) {
 function createFurnitureDraft() {
   return {
     supplies: [{ supplyId: "", qty: 0 }],
-    wood: [{ woodId: "", qty: 0 }],
+    wood: [createFurnitureWoodLine()],
+  };
+}
+
+function createFurnitureWoodLine() {
+  return {
+    woodId: "",
+    cuts: [createWoodCut()],
+  };
+}
+
+function createWoodCut() {
+  return {
+    lengthMm: 0,
+    widthMm: 0,
+    qty: 1,
+  };
+}
+
+function normalizeWoodLine(line = {}) {
+  const cuts = Array.isArray(line.cuts)
+    ? line.cuts.map((cut) => ({
+        lengthMm: Number(cut.lengthMm || 0),
+        widthMm: Number(cut.widthMm || 0),
+        qty: Number(cut.qty || 0),
+      }))
+    : [];
+
+  return {
+    woodId: line.woodId || "",
+    qty: Number(line.qty || 0),
+    cuts: cuts.length ? cuts : [createWoodCut()],
   };
 }
 
 function normalizeFurnitureDraft(draft) {
   return {
     supplies: draft.supplies?.length ? draft.supplies : [{ supplyId: "", qty: 0 }],
-    wood: draft.wood?.length ? draft.wood : [{ woodId: "", qty: 0 }],
+    wood: draft.wood?.length ? draft.wood.map(normalizeWoodLine) : [createFurnitureWoodLine()],
   };
 }
 
@@ -393,9 +452,19 @@ function furnitureSupplyLineCost(line) {
   return item ? Number(line.qty || 0) * supplyUnitPrice(item) : 0;
 }
 
+function woodCutM2(cut) {
+  return (Number(cut.lengthMm || 0) * Number(cut.widthMm || 0) * Number(cut.qty || 0)) / 1000000;
+}
+
+function furnitureWoodLineM2(line) {
+  const cuts = Array.isArray(line.cuts) ? line.cuts : [];
+  const cutsM2 = cuts.reduce((sum, cut) => sum + woodCutM2(cut), 0);
+  return cutsM2 > 0 ? cutsM2 : Number(line.qty || 0);
+}
+
 function furnitureWoodLineCost(line) {
   const item = state.wood.find((entry) => entry.id === line.woodId);
-  return item ? Number(line.qty || 0) * woodUsefulM2Cost(item) : 0;
+  return item ? furnitureWoodLineM2(line) * woodUsefulM2Cost(item) : 0;
 }
 
 function furnitureSupplyTotal(item) {
@@ -404,6 +473,10 @@ function furnitureSupplyTotal(item) {
 
 function furnitureWoodTotal(item) {
   return (item.wood || []).reduce((sum, line) => sum + furnitureWoodLineCost(line), 0);
+}
+
+function furnitureWoodM2Total(item) {
+  return (item.wood || []).reduce((sum, line) => sum + furnitureWoodLineM2(line), 0);
 }
 
 function furnitureTotal(item) {
@@ -454,6 +527,64 @@ function invoiceProfit(invoice) {
   return Number(invoice.price || 0) - invoiceFurnitureCost(invoice);
 }
 
+function orderLineFurniture(line) {
+  return furnitureById(line.furnitureId);
+}
+
+function orderLineQty(line) {
+  return Math.max(1, Number(line.qty || 1));
+}
+
+function orderLineSupplyCost(line) {
+  const furniture = orderLineFurniture(line);
+  return furniture ? furnitureSupplyTotal(furniture) : 0;
+}
+
+function orderLineWoodCost(line) {
+  const furniture = orderLineFurniture(line);
+  return furniture ? furnitureWoodTotal(furniture) : 0;
+}
+
+function orderLineUnitCost(line) {
+  const furniture = orderLineFurniture(line);
+  return furniture ? furnitureTotal(furniture) : 0;
+}
+
+function orderLineTotal(line) {
+  return orderLineUnitCost(line) * orderLineQty(line);
+}
+
+function orderTotalQty() {
+  return orderDraft.reduce((sum, line) => sum + orderLineQty(line), 0);
+}
+
+function orderTotalCost() {
+  return orderDraft.reduce((sum, line) => sum + orderLineTotal(line), 0);
+}
+
+function savedOrderLineCount(order) {
+  return Array.isArray(order.lines) ? order.lines.length : 0;
+}
+
+function savedOrderTotalQty(order) {
+  return (order.lines || []).reduce((sum, line) => sum + orderLineQty(line), 0);
+}
+
+function currentOrderName() {
+  const typedName = cleanText(elements.orders.name.value);
+  if (typedName) return typedName;
+  return `Pedido ${new Date().toLocaleDateString("es-AR")}`;
+}
+
+function normalizeOrderLines(lines = []) {
+  return lines
+    .filter((line) => furnitureById(line.furnitureId))
+    .map((line) => ({
+      furnitureId: line.furnitureId,
+      qty: orderLineQty(line),
+    }));
+}
+
 function invoiceNumber(invoice) {
   const digits = cleanText(invoice.id).match(/\d+/g)?.join("").slice(-6);
   if (digits) return `DL-${digits.padStart(6, "0")}`;
@@ -490,13 +621,13 @@ function setActiveView(viewId) {
 function closeMobileMenu() {
   elements.sidebar.classList.remove("menu-open");
   elements.menuToggle.setAttribute("aria-expanded", "false");
-  elements.menuToggle.setAttribute("aria-label", "Abrir menu");
+  elements.menuToggle.setAttribute("aria-label", "Abrir menú");
 }
 
 function toggleMobileMenu() {
   const isOpen = elements.sidebar.classList.toggle("menu-open");
   elements.menuToggle.setAttribute("aria-expanded", String(isOpen));
-  elements.menuToggle.setAttribute("aria-label", isOpen ? "Cerrar menu" : "Abrir menu");
+  elements.menuToggle.setAttribute("aria-label", isOpen ? "Cerrar menú" : "Abrir menú");
 }
 
 function matchesSupplySearch(item) {
@@ -532,7 +663,7 @@ function matchesInvoiceSearch(item) {
 function renderSupplies() {
   const rows = state.supplies.filter(matchesSupplySearch);
   elements.supplies.table.innerHTML = "";
-  elements.supplies.count.textContent = `${rows.length} items`;
+  elements.supplies.count.textContent = `${rows.length} ítems`;
 
   if (!rows.length) {
     elements.supplies.table.appendChild(emptyRow(8));
@@ -627,26 +758,55 @@ function furnitureSupplyLineTemplate(line, index) {
 }
 
 function furnitureWoodLineTemplate(line, index) {
+  const m2 = furnitureWoodLineM2(line);
+  const cuts = Array.isArray(line.cuts) && line.cuts.length ? line.cuts : [createWoodCut()];
+
   return `
-    <div class="line-row" data-kind="wood" data-index="${index}">
+    <div class="wood-line" data-kind="wood" data-index="${index}" data-legacy-qty="${Number(line.qty || 0)}">
+      <div class="wood-line-header">
+        <label>
+          <span>Madera</span>
+          <select data-field="woodId">
+            ${woodOptions(line.woodId)}
+          </select>
+        </label>
+        <div class="line-subtotal" data-subtotal>
+          ${formatCurrency.format(furnitureWoodLineCost(line))}
+          <small data-m2>${formatNumber.format(m2)} m2</small>
+        </div>
+        <button class="table-action delete" type="button" data-remove-furniture-wood="${index}">Quitar</button>
+      </div>
+      <div class="cut-list">
+        ${cuts.map((cut, cutIndex) => furnitureWoodCutTemplate(cut, index, cutIndex)).join("")}
+      </div>
+      <button class="secondary-button cut-add" type="button" data-add-wood-cut="${index}">+ Agregar corte</button>
+    </div>
+  `;
+}
+
+function furnitureWoodCutTemplate(cut, woodIndex, cutIndex) {
+  return `
+    <div class="cut-row" data-cut-index="${cutIndex}">
       <label>
-        <span>Madera</span>
-        <select data-field="woodId">
-          ${woodOptions(line.woodId)}
-        </select>
+        <span>Largo mm</span>
+        <input data-field="lengthMm" type="number" min="0" step="1" value="${Number(cut.lengthMm || 0)}" />
       </label>
       <label>
-        <span>m2 utiles</span>
-        <input data-field="qty" type="number" min="0" step="0.01" value="${Number(line.qty || 0)}" />
+        <span>Ancho mm</span>
+        <input data-field="widthMm" type="number" min="0" step="1" value="${Number(cut.widthMm || 0)}" />
       </label>
-      <div class="line-subtotal" data-subtotal>${formatCurrency.format(furnitureWoodLineCost(line))}</div>
-      <button class="table-action delete" type="button" data-remove-furniture-wood="${index}">Quitar</button>
+      <label>
+        <span>Cantidad</span>
+        <input data-field="cutQty" type="number" min="0" step="1" value="${Number(cut.qty || 0)}" />
+      </label>
+      <div class="cut-m2" data-cut-m2>${formatNumber.format(woodCutM2(cut))} m2</div>
+      <button class="table-action delete" type="button" data-remove-wood-cut="${woodIndex}:${cutIndex}">Quitar</button>
     </div>
   `;
 }
 
 function supplyOptions(selectedId) {
-  const options = [`<option value="">Elegir insumo</option>`];
+  const options = [`<option value="">Elegí insumo</option>`];
   state.supplies.forEach((item) => {
     const selected = item.id === selectedId ? " selected" : "";
     const label = `${item.name} - ${formatCurrency.format(supplyUnitPrice(item))} / ${supplyUnit(item)}`;
@@ -656,7 +816,7 @@ function supplyOptions(selectedId) {
 }
 
 function woodOptions(selectedId) {
-  const options = [`<option value="">Elegir madera</option>`];
+  const options = [`<option value="">Elegí madera</option>`];
   state.wood.forEach((item) => {
     const selected = item.id === selectedId ? " selected" : "";
     const label = `${item.type} ${item.thickness} mm ${item.color} - ${formatCurrency.format(woodUsefulM2Cost(item))} / m2`;
@@ -680,7 +840,7 @@ function renderFurniture() {
     card.className = "furniture-card clickable-row";
     card.dataset.viewFurniture = item.id;
     const supplyCount = (item.supplies || []).filter((line) => line.supplyId && line.qty > 0).length;
-    const woodM2 = (item.wood || []).reduce((sum, line) => sum + Number(line.qty || 0), 0);
+    const woodM2 = furnitureWoodM2Total(item);
     card.innerHTML = `
       <div class="furniture-card-media">
         ${item.photo ? `<img src="${escapeHtml(item.photo)}" alt="${escapeHtml(item.name)}" />` : `<span>${escapeHtml(furnitureInitials(item.name))}</span>`}
@@ -726,11 +886,11 @@ function renderInvoices() {
       </div>
       <div class="invoice-card-stats">
         <span>Precio <strong>${formatCurrency.format(Number(item.price || 0))}</strong></span>
-        <span>Envio <strong>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</strong></span>
+        <span>Envío <strong>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</strong></span>
         <span>Total <strong>${formatCurrency.format(invoiceTotal(item))}</strong></span>
         <span>Ganancia <strong>${formatCurrency.format(invoiceProfit(item))}</strong></span>
       </div>
-      <p>${escapeHtml(item.shippingRequired ? item.location || "Envio sin ubicacion" : "Retira / sin envio")}</p>
+      <p>${escapeHtml(item.shippingRequired ? item.location || "Envío sin ubicación" : "Retira / sin envío")}</p>
       <div class="invoice-card-actions">
         <button class="table-action pdf" type="button" data-print-invoice="${item.id}">PDF</button>
         <button class="table-action" type="button" data-edit-invoice="${item.id}">Editar</button>
@@ -825,8 +985,89 @@ function renderAll() {
   renderFurnitureBuilder();
   renderInvoices();
   renderInvoiceFurnitureOptions();
+  renderOrders();
   updateInvoiceSummary();
   renderDashboard();
+}
+
+function renderOrderFurnitureOptions(selectedId = elements.orders.furniture.value) {
+  const options = [`<option value="">Elegí mueble</option>`];
+  state.furniture.forEach((item) => {
+    const selected = item.id === selectedId ? " selected" : "";
+    const label = `${item.name} - costo ${formatCurrency.format(furnitureTotal(item))}`;
+    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+  });
+  elements.orders.furniture.innerHTML = options.join("");
+}
+
+function renderOrders() {
+  orderDraft = orderDraft.filter((line) => furnitureById(line.furnitureId));
+  renderOrderFurnitureOptions();
+  renderSavedOrders();
+  elements.orders.table.innerHTML = "";
+  elements.orders.count.textContent = `${orderDraft.length} líneas`;
+  elements.orders.itemsCount.textContent = formatNumber.format(orderDraft.length);
+  elements.orders.totalQty.textContent = formatNumber.format(orderTotalQty());
+  elements.orders.totalCost.textContent = formatCurrency.format(orderTotalCost());
+
+  if (!orderDraft.length) {
+    elements.orders.table.appendChild(emptyRow(7));
+    return;
+  }
+
+  orderDraft.forEach((line, index) => {
+    const furniture = orderLineFurniture(line);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <strong>${escapeHtml(furniture?.name || "Mueble eliminado")}</strong>
+        <div class="muted-cell">${escapeHtml(furniture?.notes || "Sin detalle")}</div>
+      </td>
+      <td class="number">${formatNumber.format(orderLineQty(line))}</td>
+      <td class="number">${formatCurrency.format(orderLineSupplyCost(line))}</td>
+      <td class="number">${formatCurrency.format(orderLineWoodCost(line))}</td>
+      <td class="number">${formatCurrency.format(orderLineUnitCost(line))}</td>
+      <td class="number"><strong>${formatCurrency.format(orderLineTotal(line))}</strong></td>
+      <td>
+        <div class="row-actions">
+          <button class="table-action delete" type="button" data-remove-order-line="${index}">Quitar</button>
+        </div>
+      </td>
+    `;
+    elements.orders.table.appendChild(tr);
+  });
+}
+
+function renderSavedOrders() {
+  const savedOrders = [...(state.orders || [])].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+  elements.orders.savedTable.innerHTML = "";
+  elements.orders.savedCount.textContent = `${savedOrders.length} pedidos`;
+
+  if (!savedOrders.length) {
+    elements.orders.savedTable.appendChild(emptyRow(5));
+    return;
+  }
+
+  savedOrders.forEach((order) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <strong>${escapeHtml(order.name || "Pedido sin nombre")}</strong>
+        <div class="muted-cell">${order.id === currentOrderId ? "Abierto ahora" : "Guardado"}</div>
+      </td>
+      <td>${escapeHtml(formatInvoiceDate((order.updatedAt || order.createdAt || "").slice(0, 10)))}</td>
+      <td class="number">${formatNumber.format(savedOrderLineCount(order))}</td>
+      <td class="number">${formatNumber.format(savedOrderTotalQty(order))}</td>
+      <td>
+        <div class="row-actions order-actions">
+          <button class="table-action" type="button" data-load-order="${order.id}">Abrir</button>
+          <button class="table-action" type="button" data-export-saved-order="${order.id}">Exportar</button>
+          <button class="table-action delete" type="button" data-delete-order="${order.id}">Borrar</button>
+        </div>
+      </td>
+    `;
+    elements.orders.savedTable.appendChild(tr);
+  });
 }
 
 function getFirebaseConfig() {
@@ -888,7 +1129,7 @@ async function initFirebaseSync() {
   }
 
   try {
-    updateSyncStatus("Iniciar sesion", "saving");
+    updateSyncStatus("Iniciar sesión", "saving");
     const firebaseModules = await importFirebaseModules();
     const app = firebaseModules.initializeApp(firebaseConfig);
     cloudSync.auth = firebaseModules.getAuth(app);
@@ -912,7 +1153,7 @@ async function initFirebaseSync() {
     );
   } catch (error) {
     console.error("Firebase init error", error);
-    updateSyncStatus("Firebase sin conexion", "error");
+    updateSyncStatus("Firebase sin conexión", "error");
   }
 }
 
@@ -929,7 +1170,7 @@ function handleSignedOut() {
   stopCloudListeners();
   document.body.classList.add("auth-required");
   elements.logout.classList.add("hidden");
-  updateSyncStatus("Iniciar sesion", "saving");
+  updateSyncStatus("Iniciar sesión", "saving");
 }
 
 function handleSignedIn(user) {
@@ -1048,11 +1289,22 @@ async function writeStateToCloud() {
 function authErrorMessage(error) {
   const code = error?.code || "";
   if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
-    return "Email o contrasena incorrectos.";
+    return "Email o contraseña incorrectos.";
   }
-  if (code.includes("too-many-requests")) return "Demasiados intentos. Espera un momento y proba de nuevo.";
-  if (code.includes("network-request-failed")) return "No hay conexion con Firebase.";
-  return "No se pudo iniciar sesion.";
+  if (code.includes("too-many-requests")) return "Demasiados intentos. Esperá un momento y probá de nuevo.";
+  if (code.includes("network-request-failed")) return "No hay conexión con Firebase.";
+  return "No se pudo iniciar sesión.";
+}
+
+function togglePasswordVisibility() {
+  const isVisible = elements.auth.password.type === "text";
+  elements.auth.password.type = isVisible ? "password" : "text";
+  elements.auth.passwordToggle.classList.toggle("is-visible", !isVisible);
+  elements.auth.passwordToggle.setAttribute("aria-pressed", String(!isVisible));
+  elements.auth.passwordToggle.setAttribute(
+    "aria-label",
+    isVisible ? "Mostrar contraseña" : "Ocultar contraseña",
+  );
 }
 
 async function handleLoginSubmit(event) {
@@ -1107,9 +1359,14 @@ function syncFurnitureDraftFromDom() {
       qty: Number(row.querySelector('[data-field="qty"]')?.value) || 0,
     }),
   );
-  furnitureDraft.wood = Array.from(elements.furniture.woodLines.querySelectorAll(".line-row")).map((row) => ({
+  furnitureDraft.wood = Array.from(elements.furniture.woodLines.querySelectorAll(".wood-line")).map((row) => ({
     woodId: row.querySelector('[data-field="woodId"]')?.value || "",
-    qty: Number(row.querySelector('[data-field="qty"]')?.value) || 0,
+    qty: Number(row.dataset.legacyQty || 0),
+    cuts: Array.from(row.querySelectorAll(".cut-row")).map((cutRow) => ({
+      lengthMm: Number(cutRow.querySelector('[data-field="lengthMm"]')?.value) || 0,
+      widthMm: Number(cutRow.querySelector('[data-field="widthMm"]')?.value) || 0,
+      qty: Number(cutRow.querySelector('[data-field="cutQty"]')?.value) || 0,
+    })),
   }));
   furnitureDraft = normalizeFurnitureDraft(furnitureDraft);
 }
@@ -1120,21 +1377,33 @@ function updateFurnitureTotal() {
     if (subtotal) subtotal.textContent = formatCurrency.format(furnitureSupplyLineCost(furnitureDraft.supplies[index] || {}));
   });
 
-  elements.furniture.woodLines.querySelectorAll(".line-row").forEach((row, index) => {
+  elements.furniture.woodLines.querySelectorAll(".wood-line").forEach((row, index) => {
+    const line = furnitureDraft.wood[index] || {};
     const subtotal = row.querySelector("[data-subtotal]");
-    if (subtotal) subtotal.textContent = formatCurrency.format(furnitureWoodLineCost(furnitureDraft.wood[index] || {}));
+
+    if (subtotal) {
+      subtotal.innerHTML = `
+        ${formatCurrency.format(furnitureWoodLineCost(line))}
+        <small data-m2>${formatNumber.format(furnitureWoodLineM2(line))} m2</small>
+      `;
+    }
+
+    row.querySelectorAll(".cut-row").forEach((cutRow, cutIndex) => {
+      const cutM2 = cutRow.querySelector("[data-cut-m2]");
+      if (cutM2) cutM2.textContent = `${formatNumber.format(woodCutM2(line.cuts?.[cutIndex] || {}))} m2`;
+    });
   });
 
   const draftItem = { supplies: furnitureDraft.supplies, wood: furnitureDraft.wood };
   const supplyCount = furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0).length;
-  const woodM2 = furnitureDraft.wood.reduce((sum, line) => sum + Number(line.qty || 0), 0);
+  const woodM2 = furnitureWoodM2Total(draftItem);
   const total = furnitureTotal(draftItem);
 
   elements.furniture.total.textContent = formatCurrency.format(total);
   elements.furniture.totalDetail.textContent =
     supplyCount || woodM2
       ? `${formatNumber.format(supplyCount)} insumos - ${formatNumber.format(woodM2)} m2 de madera`
-      : "Sin items seleccionados";
+      : "Sin ítems seleccionados";
 }
 
 function handleFurnitureLineChange() {
@@ -1143,7 +1412,7 @@ function handleFurnitureLineChange() {
 }
 
 function renderInvoiceFurnitureOptions(selectedId = elements.invoices.furniture.value) {
-  const options = [`<option value="">Elegir mueble</option>`];
+  const options = [`<option value="">Elegí mueble</option>`];
   state.furniture.forEach((item) => {
     const selected = item.id === selectedId ? " selected" : "";
     const label = `${item.name} - costo ${formatCurrency.format(furnitureTotal(item))}`;
@@ -1163,6 +1432,222 @@ function currentInvoiceDraft() {
   };
 }
 
+function handleOrderSubmit(event) {
+  event.preventDefault();
+  const furnitureId = elements.orders.furniture.value;
+  const qty = Math.max(1, Math.floor(readNumber(elements.orders.qty, 1)));
+
+  if (!furnitureId) {
+    alert("Elegí un mueble para agregar al pedido.");
+    return;
+  }
+
+  const existing = orderDraft.find((line) => line.furnitureId === furnitureId);
+  if (existing) {
+    existing.qty = orderLineQty(existing) + qty;
+  } else {
+    orderDraft.push({
+      furnitureId,
+      qty,
+    });
+  }
+
+  elements.orders.qty.value = 1;
+  renderOrders();
+}
+
+function removeOrderLine(index) {
+  orderDraft.splice(index, 1);
+  renderOrders();
+}
+
+function saveCurrentOrder() {
+  const lines = normalizeOrderLines(orderDraft);
+  if (!lines.length) {
+    alert("Agregá al menos un mueble antes de guardar el pedido.");
+    return;
+  }
+
+  const id = currentOrderId || createId("order");
+  const payload = {
+    id,
+    name: currentOrderName(),
+    lines,
+    createdAt: getExistingCreatedAt(state.orders || [], id),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (currentOrderId && (state.orders || []).some((order) => order.id === currentOrderId)) {
+    state.orders = (state.orders || []).map((order) => (order.id === currentOrderId ? payload : order));
+  } else {
+    state.orders = [payload, ...(state.orders || [])];
+    currentOrderId = id;
+  }
+
+  elements.orders.name.value = payload.name;
+  saveAndRefresh();
+}
+
+function loadSavedOrder(id) {
+  const order = (state.orders || []).find((item) => item.id === id);
+  if (!order) return;
+
+  currentOrderId = order.id;
+  orderDraft = normalizeOrderLines(order.lines || []);
+  elements.orders.name.value = order.name || "";
+  renderOrders();
+}
+
+function deleteSavedOrder(id) {
+  const order = (state.orders || []).find((item) => item.id === id);
+  if (!order) return;
+
+  confirmWithModal({
+    title: "Borrar pedido",
+    body: `¿Seguro que querés borrar "${order.name || "Pedido sin nombre"}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
+    onConfirm: () => {
+      state.orders = (state.orders || []).filter((item) => item.id !== id);
+      if (currentOrderId === id) {
+        currentOrderId = "";
+        orderDraft = [];
+        elements.orders.name.value = "";
+      }
+      saveAndRefresh();
+    },
+  });
+}
+
+function clearOrder() {
+  if (!orderDraft.length) return;
+  const clear = confirm("¿Seguro que querés limpiar el pedido?");
+  if (!clear) return;
+  currentOrderId = "";
+  orderDraft = [];
+  elements.orders.name.value = "";
+  renderOrders();
+}
+
+function orderExportRows(lines = orderDraft) {
+  return lines.flatMap((line) => {
+    const furniture = orderLineFurniture(line);
+    if (!furniture) return [];
+
+    return (furniture.wood || []).flatMap((woodLine) => {
+      const wood = state.wood.find((item) => item.id === woodLine.woodId);
+      return (woodLine.cuts || [])
+        .filter((cut) => woodCutM2(cut) > 0)
+        .map((cut) => ({
+          furniture: furniture.name,
+          wood: wood?.type || "Madera eliminada",
+          color: wood?.color || "-",
+          thickness: wood ? `${formatNumber.format(wood.thickness)} mm` : "-",
+          lengthMm: Number(cut.lengthMm || 0),
+          widthMm: Number(cut.widthMm || 0),
+          qty: Number(cut.qty || 0) * orderLineQty(line),
+          m2: woodCutM2(cut) * orderLineQty(line),
+        }));
+    });
+  });
+}
+
+function excelNumber(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function exportOrderExcel(lines = orderDraft, filenamePrefix = "cortes-dilucca") {
+  if (!lines.length) {
+    alert("Agregá al menos un mueble al pedido antes de exportar.");
+    return;
+  }
+
+  const rows = orderExportRows(lines);
+  if (!rows.length) {
+    alert("Los muebles del pedido no tienen cortes de madera cargados.");
+    return;
+  }
+
+  const generatedAt = new Date().toLocaleString("es-AR");
+  const htmlRows = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.furniture)}</td>
+          <td>${escapeHtml(row.wood)}</td>
+          <td>${escapeHtml(row.color)}</td>
+          <td>${escapeHtml(row.thickness)}</td>
+          <td>${row.lengthMm}</td>
+          <td>${row.widthMm}</td>
+          <td>${row.qty}</td>
+          <td>${excelNumber(row.m2)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  const workbook = `
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <style>
+          table { border-collapse: collapse; font-family: Arial, sans-serif; }
+          th, td { border: 1px solid #999; padding: 8px; }
+          th { background: #e7f0e9; font-weight: 700; }
+          .number { mso-number-format: "0.00"; }
+        </style>
+      </head>
+      <body>
+        <h2>Cortes Muebles DiLucca</h2>
+        <p>Generado: ${escapeHtml(generatedAt)}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Mueble</th>
+              <th>Madera</th>
+              <th>Color</th>
+              <th>Espesor</th>
+              <th>Largo mm</th>
+              <th>Ancho mm</th>
+              <th>Cantidad</th>
+              <th>m2</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+          <tfoot>
+            <tr>
+              <th colspan="6">Total cortes</th>
+              <th>${rows.reduce((sum, row) => sum + row.qty, 0)}</th>
+              <th>${excelNumber(rows.reduce((sum, row) => sum + row.m2, 0))}</th>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+    </html>
+  `;
+  const blob = new Blob([workbook], {
+    type: "application/vnd.ms-excel;charset=utf-8",
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filenamePrefix}-${todayValue()}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  URL.revokeObjectURL(link.href);
+  link.remove();
+}
+
+function exportSavedOrder(id) {
+  const order = (state.orders || []).find((item) => item.id === id);
+  if (!order) return;
+
+  const safeName = cleanText(order.name || "pedido")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+
+  exportOrderExcel(normalizeOrderLines(order.lines || []), `cortes-${safeName || "pedido"}`);
+}
+
 function updateInvoiceSummary() {
   const draft = currentInvoiceDraft();
   const shippingDisabled = !draft.shippingRequired;
@@ -1177,8 +1662,8 @@ function updateInvoiceSummary() {
     ? formatCurrency.format(invoiceShippingCost(draft))
     : "No";
   elements.invoices.shippingLocation.textContent = draft.shippingRequired
-    ? draft.location || "sin ubicacion"
-    : "sin envio";
+    ? draft.location || "sin ubicación"
+    : "sin envío";
 }
 
 function handleInvoiceChange() {
@@ -1204,7 +1689,7 @@ function handleFurniturePhotoChange(event) {
       updateFurniturePhotoPreview();
     })
     .catch(() => {
-      alert("No se pudo cargar la foto. Proba con otra imagen.");
+      alert("No se pudo cargar la foto. Probá con otra imagen.");
       elements.furniture.photo.value = "";
     });
 }
@@ -1249,7 +1734,7 @@ function openModal({ eyebrow, title, body, confirmLabel = "", cancelLabel = "No"
 
   if (onConfirm) {
     elements.modal.actions.classList.remove("hidden");
-    elements.modal.confirm.textContent = confirmLabel || "Si";
+    elements.modal.confirm.textContent = confirmLabel || "Sí";
     elements.modal.cancel.textContent = cancelLabel;
   } else {
     elements.modal.actions.classList.add("hidden");
@@ -1265,9 +1750,9 @@ function closeModal() {
   elements.modal.actions.classList.add("hidden");
 }
 
-function confirmWithModal({ title, body, confirmLabel = "Si", onConfirm }) {
+function confirmWithModal({ title, body, confirmLabel = "Sí", onConfirm }) {
   openModal({
-    eyebrow: "Confirmacion",
+    eyebrow: "Confirmación",
     title,
     body: `<p class="confirm-copy">${escapeHtml(body)}</p>`,
     confirmLabel,
@@ -1280,7 +1765,7 @@ function showFurnitureDetail(id) {
   if (!item) return;
 
   const supplies = (item.supplies || []).filter((line) => line.supplyId && line.qty > 0);
-  const wood = (item.wood || []).filter((line) => line.woodId && line.qty > 0);
+  const wood = (item.wood || []).filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
   const supplyTotal = furnitureSupplyTotal(item);
   const woodTotal = furnitureWoodTotal(item);
 
@@ -1344,12 +1829,12 @@ function showInvoiceDetail(id) {
       <div class="detail-section">
         <h3>Datos</h3>
         <div class="detail-row"><strong>Fecha</strong><span>${escapeHtml(item.date || "-")}</span></div>
-        <div class="detail-row"><strong>Telefono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
+        <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
         <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
         <div class="detail-row"><strong>Precio en factura</strong><span>${formatCurrency.format(Number(item.price || 0))}</span></div>
         <div class="detail-row"><strong>Costo mueble</strong><span>${formatCurrency.format(invoiceFurnitureCost(item))}</span></div>
-        <div class="detail-row"><strong>Envio</strong><span>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</span></div>
-        ${item.shippingRequired ? `<div class="detail-row"><strong>Ubicacion</strong><span>${escapeHtml(item.location || "-")}</span></div>` : ""}
+        <div class="detail-row"><strong>Envío</strong><span>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</span></div>
+        ${item.shippingRequired ? `<div class="detail-row"><strong>Ubicación</strong><span>${escapeHtml(item.location || "-")}</span></div>` : ""}
       </div>
       ${item.notes ? `<div class="detail-section"><h3>Notas</h3><p class="confirm-copy">${escapeHtml(item.notes)}</p></div>` : ""}
     `,
@@ -1363,8 +1848,8 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
   const total = invoiceTotal(invoice);
   const notes = cleanText(invoice.notes);
   const shippingText = invoice.shippingRequired
-    ? escapeHtml(invoice.location || "Envio sin ubicacion")
-    : "Retira / sin envio";
+    ? escapeHtml(invoice.location || "Envío sin ubicación")
+    : "Retira / sin envío";
 
   return `<!doctype html>
 <html lang="es">
@@ -1586,7 +2071,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <strong>${escapeHtml(invoice.client || "-")}</strong>
         </div>
         <div class="info-card">
-          <span>Telefono</span>
+          <span>Teléfono</span>
           <strong>${escapeHtml(invoice.phone || "-")}</strong>
         </div>
         <div class="info-card">
@@ -1594,7 +2079,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <strong>${escapeHtml(invoice.payment || "-")}</strong>
         </div>
         <div class="info-card">
-          <span>Envio</span>
+          <span>Envío</span>
           <strong>${shippingText}</strong>
         </div>
       </section>
@@ -1618,7 +2103,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           ${
             invoice.shippingRequired
               ? `<tr>
-                  <td>Envio${invoice.location ? ` - ${escapeHtml(invoice.location)}` : ""}</td>
+                  <td>Envío${invoice.location ? ` - ${escapeHtml(invoice.location)}` : ""}</td>
                   <td class="number">1</td>
                   <td class="number">${formatCurrency.format(shippingCost)}</td>
                   <td class="number">${formatCurrency.format(shippingCost)}</td>
@@ -1634,7 +2119,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <strong>${formatCurrency.format(invoicePrice)}</strong>
         </div>
         <div class="total-row">
-          <span>Envio</span>
+          <span>Envío</span>
           <strong>${invoice.shippingRequired ? formatCurrency.format(shippingCost) : "No"}</strong>
         </div>
         <div class="total-row final">
@@ -1666,7 +2151,7 @@ function printInvoice(id) {
   const popup = window.open("", "_blank", "width=900,height=1100");
 
   if (!popup) {
-    alert("El navegador bloqueo la ventana para generar el PDF. Habilita las ventanas emergentes y proba de nuevo.");
+    alert("El navegador bloqueó la ventana para generar el PDF. Habilitá las ventanas emergentes y probá de nuevo.");
     return;
   }
 
@@ -1698,18 +2183,61 @@ function detailSupplyRows(lines) {
 function detailWoodRows(lines) {
   if (!lines.length) return `<div class="empty-state">Sin madera cargada.</div>`;
   return lines
-    .map(
-      (line) => `
-        <div class="detail-row">
+    .map((line, index) => {
+      const hasCuts = Array.isArray(line.cuts) && line.cuts.some((cut) => woodCutM2(cut) > 0);
+      return `
+        <div class="detail-row detail-row-stack">
           <div>
             <strong>${escapeHtml(woodLabelById(line.woodId))}</strong>
-            <small>${formatNumber.format(line.qty)} m2 utiles</small>
+            <small>${formatNumber.format(furnitureWoodLineM2(line))} m2 calculados</small>
           </div>
           <span>${formatCurrency.format(furnitureWoodLineCost(line))}</span>
+          ${
+            hasCuts
+              ? `<button class="table-action cuts-toggle" type="button" data-toggle-cuts="${index}">Ver cortes</button>
+                 <div class="cuts-detail hidden" data-cuts-panel="${index}">
+                   ${detailCutRows(line.cuts, line.woodId)}
+                 </div>`
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function detailCutRows(cuts = [], woodId = "") {
+  const wood = state.wood.find((item) => item.id === woodId);
+  const woodName = wood ? wood.type : "-";
+  const woodColor = wood ? wood.color : "-";
+  const thickness = wood ? `${formatNumber.format(wood.thickness)} mm` : "-";
+  const rows = cuts
+    .filter((cut) => woodCutM2(cut) > 0)
+    .map(
+      (cut) => `
+        <div class="cut-detail-row">
+          <span>${escapeHtml(woodName)}</span>
+          <span>${escapeHtml(woodColor)}</span>
+          <span>${escapeHtml(thickness)}</span>
+          <span>${formatNumber.format(cut.lengthMm)} x ${formatNumber.format(cut.widthMm)} mm</span>
+          <span>${formatNumber.format(cut.qty)} un.</span>
+          <strong>${formatNumber.format(woodCutM2(cut))} m2</strong>
         </div>
       `,
     )
     .join("");
+
+  return `
+    <div class="cut-detail-header">
+      <span>Madera</span>
+      <span>Color</span>
+      <span>Espesor</span>
+      <span>Medida</span>
+      <span>Cantidad</span>
+      <span>m2</span>
+    </div>
+    ${rows}
+  `;
 }
 
 function handleSupplySubmit(event) {
@@ -1769,10 +2297,10 @@ function handleFurnitureSubmit(event) {
   syncFurnitureDraftFromDom();
 
   const supplies = furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0);
-  const wood = furnitureDraft.wood.filter((line) => line.woodId && line.qty > 0);
+  const wood = furnitureDraft.wood.filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
 
   if (!supplies.length && !wood.length) {
-    alert("Agrega al menos un insumo o una madera para calcular el mueble.");
+    alert("Agregá al menos un insumo o una madera para calcular el mueble.");
     return;
   }
 
@@ -1894,8 +2422,8 @@ function requestEditFurniture(id) {
   if (!item) return;
   confirmWithModal({
     title: "Editar mueble",
-    body: `Queres editar "${item.name}"? Se cargara en el formulario para modificarlo.`,
-    confirmLabel: "Si, editar",
+    body: `¿Querés editar "${item.name}"? Se cargará en el formulario para modificarlo.`,
+    confirmLabel: "Sí, editar",
     onConfirm: () => editFurniture(id),
   });
 }
@@ -1928,8 +2456,8 @@ function requestEditInvoice(id) {
   if (!item) return;
   confirmWithModal({
     title: "Editar factura",
-    body: `Queres editar la factura de "${item.client}"? Se cargara en el formulario para modificarla.`,
-    confirmLabel: "Si, editar",
+    body: `¿Querés editar la factura de "${item.client}"? Se cargará en el formulario para modificarla.`,
+    confirmLabel: "Sí, editar",
     onConfirm: () => editInvoice(id),
   });
 }
@@ -1947,8 +2475,8 @@ function requestDeleteSupply(id) {
   if (!item) return;
   confirmWithModal({
     title: "Borrar insumo",
-    body: `Seguro que queres borrar "${item.name}"? Esta accion no se puede deshacer.`,
-    confirmLabel: "Si, borrar",
+    body: `¿Seguro que querés borrar "${item.name}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
     onConfirm: () => deleteSupply(id),
   });
 }
@@ -1966,8 +2494,8 @@ function requestDeleteWood(id) {
   if (!item) return;
   confirmWithModal({
     title: "Borrar madera",
-    body: `Seguro que queres borrar "${item.type} ${item.color}"? Esta accion no se puede deshacer.`,
-    confirmLabel: "Si, borrar",
+    body: `¿Seguro que querés borrar "${item.type} ${item.color}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
     onConfirm: () => deleteWood(id),
   });
 }
@@ -1985,8 +2513,8 @@ function requestDeleteFurniture(id) {
   if (!item) return;
   confirmWithModal({
     title: "Borrar mueble",
-    body: `Seguro que queres borrar "${item.name}"? Esta accion no se puede deshacer.`,
-    confirmLabel: "Si, borrar",
+    body: `¿Seguro que querés borrar "${item.name}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
     onConfirm: () => deleteFurniture(id),
   });
 }
@@ -2004,8 +2532,8 @@ function requestDeleteInvoice(id) {
   if (!item) return;
   confirmWithModal({
     title: "Borrar factura",
-    body: `Seguro que queres borrar la factura de "${item.client}"? Esta accion no se puede deshacer.`,
-    confirmLabel: "Si, borrar",
+    body: `¿Seguro que querés borrar la factura de "${item.client}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
     onConfirm: () => deleteInvoice(id),
   });
 }
@@ -2110,7 +2638,31 @@ function addFurnitureSupplyLine() {
 
 function addFurnitureWoodLine() {
   syncFurnitureDraftFromDom();
-  furnitureDraft.wood.push({ woodId: "", qty: 0 });
+  furnitureDraft.wood.push(createFurnitureWoodLine());
+  renderFurnitureBuilder();
+}
+
+function addFurnitureWoodCut(woodIndex) {
+  syncFurnitureDraftFromDom();
+  if (!furnitureDraft.wood[woodIndex]) {
+    furnitureDraft.wood[woodIndex] = createFurnitureWoodLine();
+  }
+
+  if (!Array.isArray(furnitureDraft.wood[woodIndex].cuts)) {
+    furnitureDraft.wood[woodIndex].cuts = [];
+  }
+
+  furnitureDraft.wood[woodIndex].cuts.push(createWoodCut());
+  renderFurnitureBuilder();
+}
+
+function removeFurnitureWoodCut(woodIndex, cutIndex) {
+  syncFurnitureDraftFromDom();
+  const cuts = furnitureDraft.wood[woodIndex]?.cuts;
+  if (!cuts) return;
+
+  cuts.splice(cutIndex, 1);
+  if (!cuts.length) cuts.push(createWoodCut());
   renderFurnitureBuilder();
 }
 
@@ -2123,7 +2675,7 @@ function removeFurnitureLine(type, index) {
 
 function clearCollection(collectionName, label) {
   if (!state[collectionName].length) return;
-  const typed = prompt(`Para vaciar ${label}, escribi VACIAR.`);
+  const typed = prompt(`Para vaciar ${label}, escribí VACIAR.`);
   if (typed !== "VACIAR") return;
   state[collectionName] = [];
   saveAndRefresh();
@@ -2131,13 +2683,16 @@ function clearCollection(collectionName, label) {
 
 function loadSampleData() {
   if (state.supplies.length || state.wood.length || state.furniture.length || state.invoices.length) {
-    const replace = confirm("Reemplazar los datos actuales por el ejemplo?");
+    const replace = confirm("¿Reemplazar los datos actuales por el ejemplo?");
     if (!replace) return;
   }
   state.supplies = structuredClone(sampleData.supplies);
   state.wood = structuredClone(sampleData.wood);
   state.furniture = structuredClone(sampleData.furniture);
   state.invoices = structuredClone(sampleData.invoices);
+  state.orders = structuredClone(sampleData.orders);
+  currentOrderId = "";
+  orderDraft = [];
   resetFurnitureForm();
   resetInvoiceForm();
   saveAndRefresh();
@@ -2198,24 +2753,76 @@ function handleTableClick(event) {
 
 function handleModalBodyClick(event) {
   const printInvoiceButton = event.target.closest("[data-print-invoice]");
-  if (printInvoiceButton) printInvoice(printInvoiceButton.dataset.printInvoice);
+  const cutsToggle = event.target.closest("[data-toggle-cuts]");
+
+  if (printInvoiceButton) {
+    printInvoice(printInvoiceButton.dataset.printInvoice);
+    return;
+  }
+
+  if (cutsToggle) {
+    const panel = elements.modal.body.querySelector(`[data-cuts-panel="${cutsToggle.dataset.toggleCuts}"]`);
+    if (!panel) return;
+    const isHidden = panel.classList.toggle("hidden");
+    cutsToggle.textContent = isHidden ? "Ver cortes" : "Ocultar cortes";
+  }
 }
 
 function handleFurnitureLineClick(event) {
   const removeSupplyButton = event.target.closest("[data-remove-furniture-supply]");
   const removeWoodButton = event.target.closest("[data-remove-furniture-wood]");
+  const addWoodCutButton = event.target.closest("[data-add-wood-cut]");
+  const removeWoodCutButton = event.target.closest("[data-remove-wood-cut]");
 
   if (removeSupplyButton) {
     removeFurnitureLine("supplies", Number(removeSupplyButton.dataset.removeFurnitureSupply));
+    return;
   }
 
   if (removeWoodButton) {
     removeFurnitureLine("wood", Number(removeWoodButton.dataset.removeFurnitureWood));
+    return;
+  }
+
+  if (addWoodCutButton) {
+    addFurnitureWoodCut(Number(addWoodCutButton.dataset.addWoodCut));
+    return;
+  }
+
+  if (removeWoodCutButton) {
+    const [woodIndex, cutIndex] = removeWoodCutButton.dataset.removeWoodCut.split(":").map(Number);
+    removeFurnitureWoodCut(woodIndex, cutIndex);
+  }
+}
+
+function handleOrderTableClick(event) {
+  const removeButton = event.target.closest("[data-remove-order-line]");
+  if (removeButton) removeOrderLine(Number(removeButton.dataset.removeOrderLine));
+}
+
+function handleSavedOrderTableClick(event) {
+  const loadButton = event.target.closest("[data-load-order]");
+  const exportButton = event.target.closest("[data-export-saved-order]");
+  const deleteButton = event.target.closest("[data-delete-order]");
+
+  if (loadButton) {
+    loadSavedOrder(loadButton.dataset.loadOrder);
+    return;
+  }
+
+  if (exportButton) {
+    exportSavedOrder(exportButton.dataset.exportSavedOrder);
+    return;
+  }
+
+  if (deleteButton) {
+    deleteSavedOrder(deleteButton.dataset.deleteOrder);
   }
 }
 
 function bindEvents() {
   elements.auth.form.addEventListener("submit", handleLoginSubmit);
+  elements.auth.passwordToggle.addEventListener("click", togglePasswordVisibility);
   elements.logout.addEventListener("click", handleLogout);
 
   elements.tabs.forEach((tab) => {
@@ -2271,6 +2878,13 @@ function bindEvents() {
   elements.invoices.shippingRequired.addEventListener("change", handleInvoiceChange);
   elements.invoices.shippingPrice.addEventListener("input", handleInvoiceChange);
   elements.invoices.location.addEventListener("input", handleInvoiceChange);
+
+  elements.orders.form.addEventListener("submit", handleOrderSubmit);
+  elements.orders.save.addEventListener("click", saveCurrentOrder);
+  elements.orders.clear.addEventListener("click", clearOrder);
+  elements.orders.export.addEventListener("click", () => exportOrderExcel());
+  elements.orders.table.addEventListener("click", handleOrderTableClick);
+  elements.orders.savedTable.addEventListener("click", handleSavedOrderTableClick);
 
   elements.modal.close.addEventListener("click", closeModal);
   elements.modal.body.addEventListener("click", handleModalBodyClick);

@@ -3,23 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestion de Muebleria</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Gestión de Mueblería</title>
+    <link rel="stylesheet" href="styles.css?v=20260602-acentos" />
   </head>
   <body class="auth-required">
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Navegacion principal">
+      <aside class="sidebar" aria-label="Navegación principal">
         <div class="sidebar-top">
           <div class="brand">
             <span class="brand-mark">DL</span>
             <div>
               <h1>DiLucca</h1>
-              <p>Gestion de muebleria</p>
+              <p>Gestión de mueblería</p>
               <small class="sync-status" id="sync-status">Guardado local</small>
             </div>
           </div>
 
-          <button class="menu-toggle" type="button" id="menu-toggle" aria-controls="main-nav" aria-expanded="false" aria-label="Abrir menu">
+          <button class="menu-toggle" type="button" id="menu-toggle" aria-controls="main-nav" aria-expanded="false" aria-label="Abrir menú">
             <span></span>
             <span></span>
             <span></span>
@@ -32,9 +32,10 @@
           <button class="nav-tab" type="button" data-view="wood">Madera</button>
           <button class="nav-tab" type="button" data-view="furniture">Muebles</button>
           <button class="nav-tab" type="button" data-view="invoices">Facturas</button>
+          <button class="nav-tab" type="button" data-view="orders">Pedidos</button>
         </nav>
 
-        <button class="logout-button hidden" type="button" id="logout-button">Cerrar sesion</button>
+        <button class="logout-button hidden" type="button" id="logout-button">Cerrar sesión</button>
       </aside>
 
       <main class="workspace">
@@ -53,7 +54,7 @@
               <small id="metric-supplies-value">$0</small>
             </article>
             <article class="metric-card">
-              <span>Madera util</span>
+              <span>Madera útil</span>
               <strong id="metric-wood-area">0 m2</strong>
               <small id="metric-wood-value">$0 usados</small>
             </article>
@@ -72,13 +73,13 @@
           <div class="dashboard-grid">
             <section class="panel">
               <div class="panel-title">
-                <h3>Ultimos insumos</h3>
+                <h3>Últimos insumos</h3>
               </div>
               <div class="compact-list" id="latest-supplies"></div>
             </section>
             <section class="panel">
               <div class="panel-title">
-                <h3>Madera util por espesor</h3>
+                <h3>Madera útil por espesor</h3>
               </div>
               <div class="compact-list" id="wood-by-thickness"></div>
             </section>
@@ -104,7 +105,7 @@
               <input id="supply-name" type="text" required placeholder="Ej: tornillos 4x40" />
             </label>
             <label>
-              <span>Categoria</span>
+              <span>Categoría</span>
               <input id="supply-category" type="text" placeholder="Ej: herrajes" />
             </label>
             <label>
@@ -146,14 +147,14 @@
           <section class="panel table-panel">
             <div class="panel-title">
               <h3>Listado de insumos</h3>
-              <span id="supply-count-label">0 items</span>
+              <span id="supply-count-label">0 ítems</span>
             </div>
             <div class="table-wrap">
               <table class="data-table supplies-table">
                 <thead>
                   <tr>
                     <th>Insumo</th>
-                    <th>Categoria</th>
+                    <th>Categoría</th>
                     <th>Pack</th>
                     <th>Precio pack</th>
                     <th>Precio unidad</th>
@@ -207,7 +208,7 @@
               <input id="wood-price" type="number" min="0" step="0.01" required />
             </label>
             <label>
-              <span>m2 utiles</span>
+              <span>m2 útiles</span>
               <input id="wood-used" type="number" min="0" step="0.01" value="0" />
             </label>
             <div class="form-actions">
@@ -230,9 +231,9 @@
                     <th>Color</th>
                     <th>Proveedor</th>
                     <th>m2 compra</th>
-                    <th>m2 utiles</th>
+                    <th>m2 útiles</th>
                     <th>Desperdicio</th>
-                    <th>Costo m2 util</th>
+                    <th>Costo m2 útil</th>
                     <th>Costo usado</th>
                     <th>Acciones</th>
                   </tr>
@@ -300,7 +301,7 @@
             <section class="panel total-panel" aria-label="Costo calculado">
               <span>Costo total</span>
               <strong id="furniture-total">$0</strong>
-              <small id="furniture-total-detail">Sin items seleccionados</small>
+              <small id="furniture-total-detail">Sin ítems seleccionados</small>
             </section>
           </div>
 
@@ -337,7 +338,7 @@
               <input id="invoice-client" type="text" required placeholder="Nombre del cliente" />
             </label>
             <label>
-              <span>Telefono</span>
+              <span>Teléfono</span>
               <input id="invoice-phone" type="text" placeholder="Opcional" />
             </label>
             <label>
@@ -349,19 +350,19 @@
               <input id="invoice-price" type="number" min="0" step="0.01" required />
             </label>
             <label>
-              <span>Envio</span>
+              <span>Envío</span>
               <select id="invoice-shipping-required">
                 <option value="no">No</option>
-                <option value="yes">Si</option>
+                <option value="yes">Sí</option>
               </select>
             </label>
             <label>
-              <span>Precio envio</span>
+              <span>Precio envío</span>
               <input id="invoice-shipping-price" type="number" min="0" step="0.01" value="0" />
             </label>
             <label>
-              <span>Ubicacion envio</span>
-              <input id="invoice-location" type="text" placeholder="Direccion o zona" />
+              <span>Ubicación envío</span>
+              <input id="invoice-location" type="text" placeholder="Dirección o zona" />
             </label>
             <label>
               <span>Pago</span>
@@ -384,12 +385,12 @@
             <article class="metric-card">
               <span>Costo mueble</span>
               <strong id="invoice-cost">$0</strong>
-              <small>segun mueble elegido</small>
+              <small>según mueble elegido</small>
             </article>
             <article class="metric-card">
               <span>Total factura</span>
               <strong id="invoice-total">$0</strong>
-              <small>precio + envio</small>
+              <small>precio + envío</small>
             </article>
             <article class="metric-card">
               <span>Ganancia</span>
@@ -397,9 +398,9 @@
               <small>precio - costo</small>
             </article>
             <article class="metric-card">
-              <span>Envio</span>
+              <span>Envío</span>
               <strong id="invoice-shipping-label">$0</strong>
-              <small id="invoice-shipping-location">sin envio</small>
+              <small id="invoice-shipping-location">sin envío</small>
             </article>
           </div>
 
@@ -411,6 +412,100 @@
             <div class="invoice-grid" id="invoice-table"></div>
           </section>
         </section>
+
+        <section class="view" id="orders" aria-labelledby="orders-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Planilla de pedido</p>
+              <h2 id="orders-title">Pedidos</h2>
+            </div>
+            <div class="toolbar">
+              <button class="secondary-button" type="button" id="clear-order">Limpiar pedido</button>
+              <button class="secondary-button" type="button" id="save-order">Guardar pedido</button>
+              <button class="primary-button" type="button" id="export-order">Exportar cortes</button>
+            </div>
+          </div>
+
+          <form class="entry-form order-form" id="order-form" autocomplete="off">
+            <label>
+              <span>Nombre del pedido</span>
+              <input id="order-name" type="text" placeholder="Ej: Cocina cliente Gomez" />
+            </label>
+            <label>
+              <span>Mueble</span>
+              <select id="order-furniture" required></select>
+            </label>
+            <label>
+              <span>Cantidad</span>
+              <input id="order-qty" type="number" min="1" step="1" value="1" required />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Agregar al pedido</button>
+            </div>
+          </form>
+
+          <div class="invoice-summary-grid order-summary-grid">
+            <article class="metric-card">
+              <span>Ítems</span>
+              <strong id="order-items-count">0</strong>
+              <small>líneas del pedido</small>
+            </article>
+            <article class="metric-card">
+              <span>Cantidad total</span>
+              <strong id="order-total-qty">0</strong>
+              <small>muebles pedidos</small>
+            </article>
+            <article class="metric-card">
+              <span>Costo total</span>
+              <strong id="order-total-cost">$0</strong>
+              <small>según muebles cargados</small>
+            </article>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Muebles para cortar</h3>
+              <span id="order-count-label">0 líneas</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table order-table">
+                <thead>
+                  <tr>
+                    <th>Mueble</th>
+                    <th>Cantidad</th>
+                    <th>Insumos unit.</th>
+                    <th>Madera unit.</th>
+                    <th>Costo unit.</th>
+                    <th>Total</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="order-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Pedidos guardados</h3>
+              <span id="saved-order-count-label">0 pedidos</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table saved-order-table">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Fecha</th>
+                    <th>Líneas</th>
+                    <th>Cantidad</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="saved-order-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
       </main>
     </div>
 
@@ -420,15 +515,26 @@
         <div>
           <p class="eyebrow">Acceso privado</p>
           <h1>Ingresar a DiLucca</h1>
-          <p>Usa el usuario creado en Firebase para gestionar tus datos.</p>
+          <p>Ingresá usuario y contraseña para ingresar al sistema.</p>
         </div>
         <label>
           <span>Email</span>
           <input id="login-email" type="email" autocomplete="email" required />
         </label>
         <label>
-          <span>Contrasena</span>
-          <input id="login-password" type="password" autocomplete="current-password" required />
+          <span>Contraseña</span>
+          <div class="password-input">
+            <input id="login-password" type="password" autocomplete="current-password" required />
+            <button
+              class="password-toggle"
+              type="button"
+              id="login-password-toggle"
+              aria-label="Mostrar contraseña"
+              aria-pressed="false"
+            >
+              <span class="eye-icon" aria-hidden="true"></span>
+            </button>
+          </div>
         </label>
         <button class="primary-button" type="submit" id="login-submit">Ingresar</button>
         <p class="auth-message" id="login-message"></p>
@@ -453,12 +559,12 @@
         <div class="modal-body" id="modal-body"></div>
         <div class="modal-actions hidden" id="modal-actions">
           <button class="secondary-button" type="button" id="modal-cancel">No</button>
-          <button class="primary-button" type="button" id="modal-confirm">Si</button>
+          <button class="primary-button" type="button" id="modal-confirm">Sí</button>
         </div>
       </div>
     </div>
 
-    <script src="firebase-config.js"></script>
-    <script src="app.js"></script>
+    <script src="firebase-config.js?v=20260602-acentos"></script>
+    <script src="app.js?v=20260602-acentos"></script>
   </body>
 </html>
