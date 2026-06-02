@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestión de Mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260602-supplies-mobile" />
+    <link rel="stylesheet" href="styles.css?v=20260602-sale-status" />
   </head>
   <body class="auth-loading">
     <div class="app-shell">
@@ -331,8 +331,12 @@
               <p class="eyebrow">Costeo de trabajos</p>
               <h2 id="furniture-title">Muebles</h2>
             </div>
-            <div class="toolbar">
+            <div class="toolbar furniture-toolbar">
               <button class="primary-button" type="button" id="show-furniture-form">Agregar mueble</button>
+              <label class="toolbar-field">
+                <span>Margen %</span>
+                <input id="suggested-margin" type="number" min="0" step="1" value="80" />
+              </label>
               <input id="furniture-search" type="search" placeholder="Buscar mueble" autocomplete="off" />
             </div>
           </div>
@@ -441,6 +445,18 @@
               <input id="invoice-price" type="number" min="0" step="0.01" required />
             </label>
             <label>
+              <span>Seña recibida</span>
+              <input id="invoice-deposit" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
+              <span>Estado</span>
+              <select id="invoice-status">
+                <option value="Pendiente">Pendiente</option>
+                <option value="Entregado">Entregado</option>
+                <option value="Cancelado">Cancelado</option>
+              </select>
+            </label>
+            <label>
               <span>Envío</span>
               <select id="invoice-shipping-required">
                 <option value="no">No</option>
@@ -487,6 +503,16 @@
               <span>Ganancia</span>
               <strong id="invoice-profit">$0</strong>
               <small>precio - costo</small>
+            </article>
+            <article class="metric-card">
+              <span>Seña</span>
+              <strong id="invoice-deposit-label">$0</strong>
+              <small>cobrado sin envío</small>
+            </article>
+            <article class="metric-card">
+              <span>Saldo</span>
+              <strong id="invoice-balance-label">$0</strong>
+              <small>pendiente sin envío</small>
             </article>
             <article class="metric-card">
               <span>Envío</span>
@@ -655,7 +681,7 @@
       </div>
     </div>
 
-    <script src="firebase-config.js?v=20260602-supplies-mobile"></script>
-    <script src="app.js?v=20260602-supplies-mobile"></script>
+    <script src="firebase-config.js?v=20260602-invoice-stock-later"></script>
+    <script src="app.js?v=20260602-sale-status"></script>
   </body>
 </html>

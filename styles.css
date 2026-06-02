@@ -416,6 +416,37 @@ select:focus {
   width: min(280px, 100%);
 }
 
+.toolbar-field {
+  display: grid;
+  gap: 5px;
+  width: 104px;
+}
+
+.toolbar-field span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.toolbar .toolbar-field input {
+  width: 100%;
+}
+
+.furniture-toolbar {
+  display: grid;
+  grid-template-columns: auto 104px;
+  gap: 10px;
+  align-items: end;
+  justify-content: end;
+  min-width: min(340px, 100%);
+}
+
+.furniture-toolbar > input[type="search"] {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .period-filter {
   display: grid;
   gap: 7px;
@@ -960,6 +991,7 @@ tbody tr:hover td {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
   padding: 16px;
+  align-items: start;
 }
 
 .invoice-summary-grid {
@@ -1076,8 +1108,8 @@ tbody tr:hover td {
 .furniture-card {
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 320px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 430px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -1095,28 +1127,46 @@ tbody tr:hover td {
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: 4 / 3;
-  background: #e8f0f0;
+  height: 210px;
+  overflow: hidden;
+  background: #eef2ed;
   color: var(--brand-strong);
   font-size: 2rem;
   font-weight: 800;
 }
 
-.furniture-card-media img {
+.furniture-card-media span {
+  position: relative;
+  z-index: 1;
+}
+
+.furniture-card-photo {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 78%;
 }
 
 .furniture-card-body {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  grid-template-rows: minmax(0, auto) auto;
+  align-content: start;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  min-width: 0;
 }
 
 .furniture-card-body h4 {
   margin: 0;
   font-size: 1rem;
+  min-height: 40px;
+  line-height: 1.2;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .furniture-card-body p {
@@ -1124,6 +1174,22 @@ tbody tr:hover td {
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.35;
+}
+
+.furniture-card-body p:first-of-type {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  min-height: 37px;
+  -webkit-line-clamp: 2;
+}
+
+.furniture-card-body p + p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  min-height: 18px;
+  -webkit-line-clamp: 1;
 }
 
 .furniture-card-stats {
@@ -1147,16 +1213,17 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-.furniture-card-stats span:last-child {
-  grid-column: 1 / -1;
+.furniture-card-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--line);
 }
 
-.furniture-card-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 14px 14px;
-  border-top: 1px solid var(--line);
+.furniture-card-actions .table-action {
+  width: 100%;
+  padding-inline: 8px;
 }
 
 .invoice-card {
@@ -1170,10 +1237,40 @@ tbody tr:hover td {
   box-shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
 }
 
+.invoice-card.status-card-pendiente {
+  border-left: 5px solid #d8a300;
+}
+
+.invoice-card.status-card-entregado {
+  border-left: 5px solid #2f8f5b;
+}
+
+.invoice-card.status-card-cancelado {
+  border-left: 5px solid #c84a3a;
+}
+
 .invoice-card:hover,
 .invoice-card:focus-within {
   border-color: rgba(40, 94, 97, 0.45);
   box-shadow: 0 12px 30px rgba(31, 41, 51, 0.12);
+}
+
+.invoice-card.status-card-pendiente,
+.invoice-card.status-card-pendiente:hover,
+.invoice-card.status-card-pendiente:focus-within {
+  border-left-color: #d8a300;
+}
+
+.invoice-card.status-card-entregado,
+.invoice-card.status-card-entregado:hover,
+.invoice-card.status-card-entregado:focus-within {
+  border-left-color: #2f8f5b;
+}
+
+.invoice-card.status-card-cancelado,
+.invoice-card.status-card-cancelado:hover,
+.invoice-card.status-card-cancelado:focus-within {
+  border-left-color: #c84a3a;
 }
 
 .invoice-card h4,
@@ -1185,6 +1282,34 @@ tbody tr:hover td {
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.35;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-height: 26px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.status-pendiente {
+  background: #fff3c4;
+  color: #7a5700;
+}
+
+.status-entregado {
+  background: #dff4e8;
+  color: #1f6b43;
+}
+
+.status-cancelado {
+  background: #ffe1dd;
+  color: #a73426;
 }
 
 .invoice-card-stats {
@@ -1441,7 +1566,7 @@ tbody tr:hover td {
 
 .detail-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1709,6 +1834,20 @@ tbody tr:hover td {
     width: 100%;
   }
 
+  .furniture-toolbar {
+    grid-template-columns: minmax(0, 1fr) 104px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .furniture-toolbar button {
+    width: 100%;
+  }
+
+  .toolbar-field {
+    width: 100%;
+  }
+
   .metric-grid,
   .dashboard-accumulated-grid,
   .dashboard-grid,
@@ -1750,6 +1889,19 @@ tbody tr:hover td {
     padding: 10px;
   }
 
+  .furniture-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .furniture-card {
+    min-height: 380px;
+  }
+
+  .furniture-card-media {
+    height: 180px;
+  }
+
   .supplies-table {
     min-width: 0;
     table-layout: auto;
@@ -1760,58 +1912,91 @@ tbody tr:hover td {
   }
 
   .supplies-table,
-  .supplies-table tbody,
-  .supplies-table tr,
-  .supplies-table td {
-    display: block;
+  .supplies-table tbody {
+    display: grid;
     width: 100%;
   }
 
-  .supplies-table td:nth-child(1),
-  .supplies-table td:nth-child(2),
-  .supplies-table td:nth-child(3),
-  .supplies-table td:nth-child(4),
-  .supplies-table td:nth-child(5),
-  .supplies-table td:nth-child(6),
-  .supplies-table td:nth-child(7),
-  .supplies-table td:nth-child(8) {
-    width: 100%;
+  .supplies-table tbody {
+    gap: 12px;
+    padding: 12px;
+    background: var(--surface-soft);
   }
 
   .supplies-table tr {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "name name"
+      "category category"
+      "pack price"
+      "unit value"
+      "actions actions";
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
     background: var(--surface);
   }
 
   .supplies-table tr:last-child {
-    border-bottom: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .supplies-table td {
-    display: grid;
-    grid-template-columns: minmax(92px, 0.45fr) minmax(0, 1fr);
-    gap: 10px;
-    padding: 7px 0;
+    width: auto !important;
+    min-width: 0;
+    padding: 0;
     border-bottom: 0;
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
+    background: transparent;
   }
 
-  .supplies-table td::before {
+  .supplies-table td:nth-child(1) {
+    grid-area: name;
+  }
+
+  .supplies-table td:nth-child(1) strong,
+  .supplies-table td:nth-child(1) .muted-cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .supplies-table td:nth-child(2) {
+    grid-area: category;
+    justify-self: start;
+    align-self: start;
+  }
+
+  .supplies-table td:nth-child(2) .tag {
+    max-width: 100%;
+  }
+
+  .supplies-table td:nth-child(3),
+  .supplies-table td:nth-child(4),
+  .supplies-table td:nth-child(5),
+  .supplies-table td:nth-child(7) {
+    display: grid;
+    gap: 4px;
+    align-content: center;
+    min-height: 54px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    font-size: 0.9rem;
+  }
+
+  .supplies-table td:nth-child(3)::before,
+  .supplies-table td:nth-child(4)::before,
+  .supplies-table td:nth-child(5)::before,
+  .supplies-table td:nth-child(7)::before {
     color: var(--muted);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 800;
     text-transform: uppercase;
-  }
-
-  .supplies-table td:nth-child(1)::before {
-    content: "Insumo";
-  }
-
-  .supplies-table td:nth-child(2)::before {
-    content: "Categoría";
   }
 
   .supplies-table td:nth-child(3)::before {
@@ -1826,28 +2011,47 @@ tbody tr:hover td {
     content: "Precio unidad";
   }
 
-  .supplies-table td:nth-child(6)::before {
-    content: "Stock";
-  }
-
   .supplies-table td:nth-child(7)::before {
     content: "Valor stock";
   }
 
-  .supplies-table td:nth-child(8) {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding-top: 10px;
+  .supplies-table td:nth-child(3) {
+    grid-area: pack;
   }
 
-  .supplies-table td:nth-child(8)::before {
-    content: "Acciones";
-    flex: 0 0 100%;
+  .supplies-table td:nth-child(4) {
+    grid-area: price;
+  }
+
+  .supplies-table td:nth-child(5) {
+    grid-area: unit;
+  }
+
+  .supplies-table td:nth-child(6) {
+    display: none;
+  }
+
+  .supplies-table td:nth-child(7) {
+    grid-area: value;
+  }
+
+  .supplies-table td:nth-child(8) {
+    grid-area: actions;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .supplies-table td:nth-child(8) .table-action {
-    flex: 1 1 108px;
+    width: 100%;
+  }
+
+  .supplies-table td[colspan] {
+    grid-column: 1 / -1;
+    display: block;
+    padding: 22px 12px;
+    border: 0;
+    background: transparent;
   }
 
   .compact-item {

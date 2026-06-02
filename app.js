@@ -1,7 +1,10 @@
 const STORAGE_KEY = "dilucca-management-v1";
 const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
-const FIREBASE_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "orders"];
+const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "orders"];
+const FIREBASE_COLLECTIONS = [...DATA_COLLECTIONS, "settings"];
+const DEFAULT_SETTINGS = [{ id: "pricing", suggestedMarkup: 80 }];
+const INVOICE_STATUSES = ["Pendiente", "Entregado", "Cancelado"];
 
 const sampleData = {
   supplies: [
@@ -102,6 +105,7 @@ const sampleData = {
     },
   ],
   orders: [],
+  settings: structuredClone(DEFAULT_SETTINGS),
 };
 
 const state = loadState();
@@ -113,6 +117,7 @@ let currentFurniturePhoto = "";
 let storageWarningShown = false;
 let cloudSaveTimer = null;
 let activeStockPanel = "supplies";
+let modalCancelAction = null;
 
 const cloudSync = {
   enabled: false,
@@ -216,6 +221,8 @@ const elements = {
     phone: $("#invoice-phone"),
     date: $("#invoice-date"),
     price: $("#invoice-price"),
+    deposit: $("#invoice-deposit"),
+    status: $("#invoice-status"),
     shippingRequired: $("#invoice-shipping-required"),
     shippingPrice: $("#invoice-shipping-price"),
     location: $("#invoice-location"),
@@ -229,6 +236,8 @@ const elements = {
     cost: $("#invoice-cost"),
     total: $("#invoice-total"),
     profit: $("#invoice-profit"),
+    depositLabel: $("#invoice-deposit-label"),
+    balanceLabel: $("#invoice-balance-label"),
     shippingLabel: $("#invoice-shipping-label"),
     shippingLocation: $("#invoice-shipping-location"),
   },
@@ -277,6 +286,9 @@ const elements = {
     lowStockCountLabel: $("#low-stock-count-label"),
     lowStockList: $("#low-stock-list"),
   },
+  settings: {
+    suggestedMargin: $("#suggested-margin"),
+  },
   modal: {
     root: $("#app-modal"),
     eyebrow: $("#modal-eyebrow"),
@@ -298,8 +310,24 @@ const elements = {
   },
 };
 
+function defaultSettings() {
+  return structuredClone(DEFAULT_SETTINGS);
+}
+
+function normalizeSettings(settings = []) {
+  const pricing = Array.isArray(settings) ? settings.find((item) => item?.id === "pricing") : null;
+  const suggestedMarkup = Number(pricing?.suggestedMarkup);
+
+  return [
+    {
+      id: "pricing",
+      suggestedMarkup: Number.isFinite(suggestedMarkup) ? Math.max(0, suggestedMarkup) : 80,
+    },
+  ];
+}
+
 function emptyState() {
-  return { supplies: [], wood: [], furniture: [], invoices: [], orders: [] };
+  return { supplies: [], wood: [], furniture: [], invoices: [], orders: [], settings: defaultSettings() };
 }
 
 function normalizeState(source = emptyState()) {
@@ -309,6 +337,7 @@ function normalizeState(source = emptyState()) {
     furniture: Array.isArray(source.furniture) ? source.furniture : [],
     invoices: Array.isArray(source.invoices) ? source.invoices : [],
     orders: Array.isArray(source.orders) ? source.orders : [],
+    settings: normalizeSettings(source.settings),
   };
 }
 
@@ -320,7 +349,7 @@ function replaceState(nextState) {
 }
 
 function hasStateData(source = state) {
-  return FIREBASE_COLLECTIONS.some((collectionName) => source[collectionName]?.length);
+  return DATA_COLLECTIONS.some((collectionName) => source[collectionName]?.length);
 }
 
 function loadState() {
@@ -472,6 +501,11 @@ function woodUsedCost(item) {
   return item.used > 0 ? item.price : 0;
 }
 
+function woodStockM2(item) {
+  const stock = Number(item.stockM2);
+  return Number.isFinite(stock) ? Math.max(0, stock) : Number(item.used || 0);
+}
+
 function furnitureSupplyLineCost(line) {
   const item = state.supplies.find((entry) => entry.id === line.supplyId);
   return item ? Number(line.qty || 0) * supplyUnitPrice(item) : 0;
@@ -506,6 +540,22 @@ function furnitureWoodM2Total(item) {
 
 function furnitureTotal(item) {
   return furnitureSupplyTotal(item) + furnitureWoodTotal(item);
+}
+
+function pricingSettings() {
+  return normalizeSettings(state.settings)[0];
+}
+
+function suggestedMarkup() {
+  return pricingSettings().suggestedMarkup;
+}
+
+function suggestedPriceLabel() {
+  return `Sugerido ${formatNumber.format(suggestedMarkup())}%`;
+}
+
+function furnitureSuggestedPrice(item) {
+  return furnitureTotal(item) * (1 + suggestedMarkup() / 100);
 }
 
 function supplyLabelById(id) {
@@ -563,7 +613,39 @@ function invoiceTotal(invoice) {
   return Number(invoice.price || 0) + invoiceShippingCost(invoice);
 }
 
+function hasExplicitDeposit(invoice) {
+  return Object.prototype.hasOwnProperty.call(invoice, "deposit");
+}
+
+function invoiceDeposit(invoice) {
+  const price = Math.max(0, Number(invoice.price || 0));
+  if (!hasExplicitDeposit(invoice)) return price;
+  return Math.min(Math.max(0, Number(invoice.deposit || 0)), price);
+}
+
+function invoiceBalance(invoice) {
+  return Math.max(0, Number(invoice.price || 0) - invoiceDeposit(invoice));
+}
+
+function invoiceStatus(invoice) {
+  const status = cleanText(invoice.status);
+  return INVOICE_STATUSES.includes(status) ? status : "Pendiente";
+}
+
+function invoiceStatusClass(invoice) {
+  return invoiceStatus(invoice)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-");
+}
+
+function invoicePaidAmount(invoice) {
+  return invoiceStatus(invoice) === "Cancelado" ? 0 : invoiceDeposit(invoice);
+}
+
 function invoiceProfit(invoice) {
+  if (invoiceStatus(invoice) === "Cancelado") return 0;
   return Number(invoice.price || 0) - invoiceFurnitureCost(invoice);
 }
 
@@ -594,7 +676,7 @@ function dashboardSalesTotals(invoices) {
   return invoices.reduce(
     (totals, invoice) => ({
       count: totals.count + 1,
-      income: totals.income + Number(invoice.price || 0),
+      income: totals.income + invoicePaidAmount(invoice),
       profit: totals.profit + invoiceProfit(invoice),
     }),
     { count: 0, income: 0, profit: 0 },
@@ -617,6 +699,66 @@ function lowStockSupplies() {
     }))
     .filter(({ units }) => units <= 0)
     .sort((a, b) => a.units - b.units || sortSuppliesByName(a.item, b.item));
+}
+
+function saleStockDiscountSummary(furniture) {
+  if (!furniture) return `<p class="confirm-copy">No se encontró el mueble elegido.</p>`;
+
+  const supplyLines = (furniture.supplies || []).filter((line) => line.supplyId && Number(line.qty || 0) > 0);
+  const woodLines = (furniture.wood || []).filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
+  const woodTotal = woodLines.reduce((sum, line) => sum + furnitureWoodLineM2(line), 0);
+
+  return `
+    <p class="confirm-copy">La venta se guardará y se descontará del stock disponible.</p>
+    <div class="detail-section">
+      <div class="detail-row"><strong>Mueble</strong><span>1 un.</span></div>
+      <div class="detail-row"><strong>Insumos</strong><span>${formatNumber.format(supplyLines.length)} líneas</span></div>
+      <div class="detail-row"><strong>Madera</strong><span>${formatNumber.format(woodTotal)} m2 usados</span></div>
+    </div>
+  `;
+}
+
+function applySaleStockDiscount(furnitureId) {
+  const furniture = furnitureById(furnitureId);
+  if (!furniture) return;
+
+  state.furniture = state.furniture.map((item) =>
+    item.id === furnitureId
+      ? {
+          ...item,
+          stock: Math.max(0, Number(item.stock || 0) - 1),
+        }
+      : item,
+  );
+
+  (furniture.supplies || []).forEach((line) => {
+    const qty = Number(line.qty || 0);
+    if (!line.supplyId || qty <= 0) return;
+
+    state.supplies = state.supplies.map((item) => {
+      if (item.id !== line.supplyId) return item;
+      const packQty = Number(item.packQty || 0);
+      const nextUnits = Math.max(0, supplyStockUnits(item) - qty);
+      return {
+        ...item,
+        stock: packQty > 0 ? nextUnits / packQty : 0,
+      };
+    });
+  });
+
+  (furniture.wood || []).forEach((line) => {
+    const m2 = furnitureWoodLineM2(line);
+    if (!line.woodId || m2 <= 0) return;
+
+    state.wood = state.wood.map((item) =>
+      item.id === line.woodId
+        ? {
+            ...item,
+            stockM2: Math.max(0, woodStockM2(item) - m2),
+          }
+        : item,
+    );
+  });
 }
 
 function orderLineFurniture(line) {
@@ -754,9 +896,15 @@ function matchesFurnitureSearch(item) {
 function matchesInvoiceSearch(item) {
   const query = elements.invoices.search.value.trim().toLowerCase();
   if (!query) return true;
-  return [item.client, item.phone, item.location, item.payment, item.notes, furnitureNameById(item.furnitureId)].some(
-    (value) => String(value || "").toLowerCase().includes(query),
-  );
+  return [
+    item.client,
+    item.phone,
+    item.location,
+    item.payment,
+    item.notes,
+    furnitureNameById(item.furnitureId),
+    invoiceStatus(item),
+  ].some((value) => String(value || "").toLowerCase().includes(query));
 }
 
 function renderSupplies() {
@@ -878,10 +1026,10 @@ function furnitureWoodLineTemplate(line, index) {
         </div>
         <button class="table-action delete" type="button" data-remove-furniture-wood="${index}">Quitar</button>
       </div>
+      <button class="secondary-button cut-add" type="button" data-add-wood-cut="${index}">+ Agregar corte</button>
       <div class="cut-list">
         ${cuts.map((cut, cutIndex) => furnitureWoodCutTemplate(cut, index, cutIndex)).join("")}
       </div>
-      <button class="secondary-button cut-add" type="button" data-add-wood-cut="${index}">+ Agregar corte</button>
     </div>
   `;
 }
@@ -1047,7 +1195,11 @@ function renderFurniture() {
     const dimensions = furnitureDimensionsText(item);
     card.innerHTML = `
       <div class="furniture-card-media">
-        ${item.photo ? `<img src="${escapeHtml(item.photo)}" alt="${escapeHtml(item.name)}" />` : `<span>${escapeHtml(furnitureInitials(item.name))}</span>`}
+        ${
+          item.photo
+            ? `<img class="furniture-card-photo" src="${escapeHtml(item.photo)}" alt="${escapeHtml(item.name)}" />`
+            : `<span>${escapeHtml(furnitureInitials(item.name))}</span>`
+        }
       </div>
       <div class="furniture-card-body">
         <div>
@@ -1058,10 +1210,12 @@ function renderFurniture() {
         <div class="furniture-card-stats">
           <span>Insumos <strong>${formatNumber.format(supplyCount)}</strong></span>
           <span>Madera <strong>${formatNumber.format(woodM2)} m2</strong></span>
-          <span>Total <strong>${formatCurrency.format(furnitureTotal(item))}</strong></span>
+          <span>Costo <strong>${formatCurrency.format(furnitureTotal(item))}</strong></span>
+          <span>${escapeHtml(suggestedPriceLabel())} <strong>${formatCurrency.format(furnitureSuggestedPrice(item))}</strong></span>
         </div>
       </div>
       <div class="furniture-card-actions">
+        <button class="table-action" type="button" data-duplicate-furniture="${item.id}">Duplicar</button>
         <button class="table-action" type="button" data-edit-furniture="${item.id}">Editar</button>
         <button class="table-action delete" type="button" data-delete-furniture="${item.id}">Borrar</button>
       </div>
@@ -1082,15 +1236,18 @@ function renderInvoices() {
 
   rows.forEach((item) => {
     const card = document.createElement("article");
-    card.className = "invoice-card clickable-row";
+    card.className = `invoice-card clickable-row status-card-${invoiceStatusClass(item)}`;
     card.dataset.viewInvoice = item.id;
     card.innerHTML = `
       <div>
         <h4>${escapeHtml(item.client)}</h4>
         <p>${escapeHtml(furnitureNameById(item.furnitureId))}</p>
+        <span class="status-pill status-${escapeHtml(invoiceStatusClass(item))}">${escapeHtml(invoiceStatus(item))}</span>
       </div>
       <div class="invoice-card-stats">
         <span>Precio <strong>${formatCurrency.format(Number(item.price || 0))}</strong></span>
+        <span>Seña <strong>${formatCurrency.format(invoiceDeposit(item))}</strong></span>
+        <span>Saldo <strong>${formatCurrency.format(invoiceBalance(item))}</strong></span>
         <span>Envío <strong>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</strong></span>
         <span>Total <strong>${formatCurrency.format(invoiceTotal(item))}</strong></span>
         <span>Ganancia <strong>${formatCurrency.format(invoiceProfit(item))}</strong></span>
@@ -1164,6 +1321,12 @@ function renderLowStockSupplies(rows = lowStockSupplies()) {
   });
 }
 
+function renderSettings() {
+  if (!elements.settings.suggestedMargin) return;
+  if (document.activeElement === elements.settings.suggestedMargin) return;
+  elements.settings.suggestedMargin.value = String(suggestedMarkup());
+}
+
 function renderStock() {
   renderStockSupplies();
   renderStockWood();
@@ -1223,15 +1386,16 @@ function renderStockWood() {
   }
 
   rows.forEach((item) => {
+    const stockM2 = woodStockM2(item);
     const card = document.createElement("article");
-    card.className = `stock-item${Number(item.used || 0) <= 0 ? " stock-empty" : ""}`;
+    card.className = `stock-item${stockM2 <= 0 ? " stock-empty" : ""}`;
     card.innerHTML = `
       <div class="stock-description">
         <strong>${escapeHtml(item.type)} ${formatNumber.format(item.thickness)} mm</strong>
         <small>${escapeHtml(item.color)}</small>
       </div>
       <label class="stock-edit">
-        <input data-stock-wood="${escapeHtml(item.id)}" type="number" min="0" max="${Number(item.area || 0)}" step="0.01" value="${Number(item.used || 0)}" />
+        <input data-stock-wood="${escapeHtml(item.id)}" type="number" min="0" max="${Number(item.area || item.used || 0)}" step="0.01" value="${stockM2}" />
         <span>m2</span>
       </label>
     `;
@@ -1337,6 +1501,7 @@ function renderWoodByThickness() {
 }
 
 function renderAll() {
+  renderSettings();
   renderSupplies();
   renderWood();
   renderFurniture();
@@ -1578,6 +1743,7 @@ function handleCloudSnapshot(collectionName, snapshot) {
     furniture: cloudSync.snapshots.furniture,
     invoices: cloudSync.snapshots.invoices,
     orders: cloudSync.snapshots.orders,
+    settings: cloudSync.snapshots.settings,
   });
 
   if (!cloudSync.ready) {
@@ -1861,6 +2027,8 @@ function currentInvoiceDraft() {
   return {
     furnitureId: elements.invoices.furniture.value,
     price: readNumber(elements.invoices.price),
+    deposit: readNumber(elements.invoices.deposit),
+    status: elements.invoices.status.value,
     shippingRequired,
     shippingPrice: shippingRequired ? readNumber(elements.invoices.shippingPrice) : 0,
     location: cleanText(elements.invoices.location.value),
@@ -2093,6 +2261,8 @@ function updateInvoiceSummary() {
   elements.invoices.cost.textContent = formatCurrency.format(invoiceFurnitureCost(draft));
   elements.invoices.total.textContent = formatCurrency.format(invoiceTotal(draft));
   elements.invoices.profit.textContent = formatCurrency.format(invoiceProfit(draft));
+  elements.invoices.depositLabel.textContent = formatCurrency.format(invoiceDeposit(draft));
+  elements.invoices.balanceLabel.textContent = formatCurrency.format(invoiceBalance(draft));
   elements.invoices.shippingLabel.textContent = draft.shippingRequired
     ? formatCurrency.format(invoiceShippingCost(draft))
     : "No";
@@ -2135,7 +2305,7 @@ function handleStockChange(event) {
   if (input.dataset.stockWood) {
     const item = state.wood.find((entry) => entry.id === input.dataset.stockWood);
     if (!item) return;
-    const current = Number(item.used || 0);
+    const current = woodStockM2(item);
     const next = Math.min(Math.max(0, readNumber(input)), Number(item.area || 0));
     requestStockUpdate({
       input,
@@ -2193,13 +2363,13 @@ function updateSupplyStock(id, stockUnits) {
   saveAndRefresh();
 }
 
-function updateWoodStock(id, usedM2) {
+function updateWoodStock(id, stockM2) {
   state.wood = state.wood.map((item) => {
     if (item.id !== id) return item;
     const area = Number(item.area || 0);
     return {
       ...item,
-      used: area > 0 ? Math.min(usedM2, area) : usedM2,
+      stockM2: area > 0 ? Math.min(stockM2, area) : stockM2,
     };
   });
   saveAndRefresh();
@@ -2272,8 +2442,9 @@ function resizeImageFile(file) {
   });
 }
 
-function openModal({ eyebrow, title, body, confirmLabel = "", cancelLabel = "No", onConfirm = null }) {
+function openModal({ eyebrow, title, body, confirmLabel = "", cancelLabel = "No", onConfirm = null, onCancel = null }) {
   modalConfirmAction = onConfirm;
+  modalCancelAction = onCancel;
   elements.modal.eyebrow.textContent = eyebrow;
   elements.modal.title.textContent = title;
   elements.modal.body.innerHTML = body;
@@ -2292,6 +2463,7 @@ function openModal({ eyebrow, title, body, confirmLabel = "", cancelLabel = "No"
 
 function closeModal() {
   modalConfirmAction = null;
+  modalCancelAction = null;
   elements.modal.root.classList.add("hidden");
   elements.modal.body.innerHTML = "";
   elements.modal.actions.classList.add("hidden");
@@ -2332,8 +2504,12 @@ function showFurnitureDetail(id) {
           <strong>${formatCurrency.format(woodTotal)}</strong>
         </div>
         <div class="detail-metric">
-          <span>Total</span>
+          <span>Costo</span>
           <strong>${formatCurrency.format(furnitureTotal(item))}</strong>
+        </div>
+        <div class="detail-metric">
+          <span>${escapeHtml(suggestedPriceLabel())}</span>
+          <strong>${formatCurrency.format(furnitureSuggestedPrice(item))}</strong>
         </div>
       </div>
       ${item.notes ? `<p class="confirm-copy">${escapeHtml(item.notes)}</p>` : ""}
@@ -2381,15 +2557,24 @@ function showInvoiceDetail(id) {
       </div>
       <div class="detail-actions">
         <button class="primary-button" type="button" data-print-invoice="${item.id}">Generar comprobante</button>
+        ${
+          item.stockDiscounted
+            ? ""
+            : `<button class="secondary-button" type="button" data-discount-invoice-stock="${item.id}">Descontar stock ahora</button>`
+        }
       </div>
       <div class="detail-section">
         <h3>Datos</h3>
         <div class="detail-row"><strong>Fecha</strong><span>${escapeHtml(item.date || "-")}</span></div>
         <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
         <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
+        <div class="detail-row"><strong>Estado</strong><span>${escapeHtml(invoiceStatus(item))}</span></div>
         <div class="detail-row"><strong>Precio de venta</strong><span>${formatCurrency.format(Number(item.price || 0))}</span></div>
+        <div class="detail-row"><strong>Seña</strong><span>${formatCurrency.format(invoiceDeposit(item))}</span></div>
+        <div class="detail-row"><strong>Saldo</strong><span>${formatCurrency.format(invoiceBalance(item))}</span></div>
         <div class="detail-row"><strong>Costo mueble</strong><span>${formatCurrency.format(invoiceFurnitureCost(item))}</span></div>
         <div class="detail-row"><strong>Envío</strong><span>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</span></div>
+        <div class="detail-row"><strong>Stock</strong><span>${item.stockDiscounted ? "Descontado" : "Sin descontar"}</span></div>
         ${item.shippingRequired ? `<div class="detail-row"><strong>Ubicación</strong><span>${escapeHtml(item.location || "-")}</span></div>` : ""}
       </div>
       ${item.notes ? `<div class="detail-section"><h3>Notas</h3><p class="confirm-copy">${escapeHtml(item.notes)}</p></div>` : ""}
@@ -2635,6 +2820,10 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <strong>${escapeHtml(invoice.payment || "-")}</strong>
         </div>
         <div class="info-card">
+          <span>Estado</span>
+          <strong>${escapeHtml(invoiceStatus(invoice))}</strong>
+        </div>
+        <div class="info-card">
           <span>Envío</span>
           <strong>${shippingText}</strong>
         </div>
@@ -2673,6 +2862,14 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
         <div class="total-row">
           <span>Subtotal</span>
           <strong>${formatCurrency.format(invoicePrice)}</strong>
+        </div>
+        <div class="total-row">
+          <span>Seña</span>
+          <strong>${formatCurrency.format(invoiceDeposit(invoice))}</strong>
+        </div>
+        <div class="total-row">
+          <span>Saldo</span>
+          <strong>${formatCurrency.format(invoiceBalance(invoice))}</strong>
         </div>
         <div class="total-row">
           <span>Envío</span>
@@ -2824,6 +3021,7 @@ function handleSupplySubmit(event) {
 function handleWoodSubmit(event) {
   event.preventDefault();
   const id = elements.wood.id.value;
+  const existingWood = id ? state.wood.find((item) => item.id === id) : null;
   const area = readNumber(elements.wood.area);
   const used = Math.min(readNumber(elements.wood.used), area);
   const payload = {
@@ -2835,6 +3033,7 @@ function handleWoodSubmit(event) {
     area,
     price: readNumber(elements.wood.price),
     used,
+    stockM2: existingWood ? Math.min(woodStockM2(existingWood), area || woodStockM2(existingWood)) : used,
     createdAt: id ? getExistingCreatedAt(state.wood, id) : new Date().toISOString(),
   };
 
@@ -2890,6 +3089,7 @@ function handleFurnitureSubmit(event) {
 function handleInvoiceSubmit(event) {
   event.preventDefault();
   const id = elements.invoices.id.value;
+  const existingInvoice = id ? state.invoices.find((item) => item.id === id) : null;
   const shippingRequired = elements.invoices.shippingRequired.value === "yes";
   const payload = {
     id: id || createId("invoice"),
@@ -2898,23 +3098,91 @@ function handleInvoiceSubmit(event) {
     phone: cleanText(elements.invoices.phone.value),
     date: elements.invoices.date.value || todayValue(),
     price: readNumber(elements.invoices.price),
+    deposit: readNumber(elements.invoices.deposit),
+    status: invoiceStatus({ status: elements.invoices.status.value }),
     shippingRequired,
     shippingPrice: shippingRequired ? readNumber(elements.invoices.shippingPrice) : 0,
     location: shippingRequired ? cleanText(elements.invoices.location.value) : "",
     payment: cleanText(elements.invoices.payment.value),
     notes: cleanText(elements.invoices.notes.value),
+    stockDiscounted: Boolean(existingInvoice?.stockDiscounted),
+    stockDiscountedAt: existingInvoice?.stockDiscountedAt || "",
     createdAt: id ? getExistingCreatedAt(state.invoices, id) : new Date().toISOString(),
   };
 
-  if (id) {
-    state.invoices = state.invoices.map((item) => (item.id === id ? payload : item));
+  if (!id) {
+    requestInvoiceStockDiscount(payload);
+    return;
+  }
+
+  saveInvoicePayload(payload);
+}
+
+function saveInvoicePayload(payload, { discountStock = false } = {}) {
+  const nextPayload = { ...payload };
+
+  if (discountStock && !nextPayload.stockDiscounted) {
+    applySaleStockDiscount(nextPayload.furnitureId);
+    nextPayload.stockDiscounted = true;
+    nextPayload.stockDiscountedAt = new Date().toISOString();
+  }
+
+  const exists = state.invoices.some((item) => item.id === nextPayload.id);
+  if (exists) {
+    state.invoices = state.invoices.map((item) => (item.id === nextPayload.id ? nextPayload : item));
   } else {
-    state.invoices.unshift(payload);
+    state.invoices.unshift(nextPayload);
   }
 
   resetInvoiceForm();
   closeInvoiceComposer();
   saveAndRefresh();
+}
+
+function requestInvoiceStockDiscount(payload) {
+  const furniture = furnitureById(payload.furnitureId);
+  openModal({
+    eyebrow: "Stock",
+    title: "Descontar stock",
+    body: saleStockDiscountSummary(furniture),
+    cancelLabel: "Guardar sin descontar",
+    confirmLabel: "Descontar stock",
+    onCancel: () => saveInvoicePayload(payload),
+    onConfirm: () => saveInvoicePayload(payload, { discountStock: true }),
+  });
+}
+
+function discountInvoiceStockNow(id) {
+  const invoice = state.invoices.find((item) => item.id === id);
+  if (!invoice || invoice.stockDiscounted) return;
+
+  applySaleStockDiscount(invoice.furnitureId);
+  state.invoices = state.invoices.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          stockDiscounted: true,
+          stockDiscountedAt: new Date().toISOString(),
+        }
+      : item,
+  );
+  closeModal();
+  saveAndRefresh();
+}
+
+function requestDiscountInvoiceStock(id) {
+  const invoice = state.invoices.find((item) => item.id === id);
+  if (!invoice || invoice.stockDiscounted) return;
+  const furniture = furnitureById(invoice.furnitureId);
+
+  openModal({
+    eyebrow: "Stock",
+    title: "Descontar stock",
+    body: saleStockDiscountSummary(furniture),
+    cancelLabel: "Cancelar",
+    confirmLabel: "Descontar stock",
+    onConfirm: () => discountInvoiceStockNow(id),
+  });
 }
 
 function getExistingCreatedAt(collection, id) {
@@ -2924,6 +3192,18 @@ function getExistingCreatedAt(collection, id) {
 function saveAndRefresh() {
   saveState();
   renderAll();
+}
+
+function handleSuggestedMarginChange() {
+  const current = suggestedMarkup();
+  const nextValue = Math.max(0, readNumber(elements.settings.suggestedMargin, current));
+  state.settings = [
+    {
+      ...pricingSettings(),
+      suggestedMarkup: nextValue,
+    },
+  ];
+  saveAndRefresh();
 }
 
 function editSupply(id) {
@@ -2992,6 +3272,33 @@ function requestEditFurniture(id) {
   });
 }
 
+function duplicateFurniture(id) {
+  const item = state.furniture.find((entry) => entry.id === id);
+  if (!item) return;
+
+  const copy = {
+    ...structuredClone(item),
+    id: createId("furniture"),
+    name: `${item.name} copia`,
+    stock: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  state.furniture.unshift(copy);
+  saveAndRefresh();
+}
+
+function requestDuplicateFurniture(id) {
+  const item = state.furniture.find((entry) => entry.id === id);
+  if (!item) return;
+  confirmWithModal({
+    title: "Duplicar mueble",
+    body: `¿Querés crear una copia de "${item.name}"? La copia queda con stock en cero.`,
+    confirmLabel: "Duplicar",
+    onConfirm: () => duplicateFurniture(id),
+  });
+}
+
 function editInvoice(id) {
   const item = state.invoices.find((entry) => entry.id === id);
   if (!item) return;
@@ -3004,6 +3311,8 @@ function editInvoice(id) {
   elements.invoices.phone.value = item.phone || "";
   elements.invoices.date.value = item.date || todayValue();
   elements.invoices.price.value = item.price;
+  elements.invoices.deposit.value = invoiceDeposit(item);
+  elements.invoices.status.value = invoiceStatus(item);
   elements.invoices.shippingRequired.value = item.shippingRequired ? "yes" : "no";
   elements.invoices.shippingPrice.value = item.shippingPrice || 0;
   elements.invoices.location.value = item.location || "";
@@ -3134,6 +3443,8 @@ function resetInvoiceForm() {
   elements.invoices.form.reset();
   elements.invoices.id.value = "";
   elements.invoices.date.value = todayValue();
+  elements.invoices.deposit.value = 0;
+  elements.invoices.status.value = "Pendiente";
   elements.invoices.shippingRequired.value = "no";
   elements.invoices.shippingPrice.value = 0;
   elements.invoices.submit.textContent = "Guardar venta";
@@ -3196,14 +3507,16 @@ function toggleInvoiceComposer() {
 
 function addFurnitureSupplyLine() {
   syncFurnitureDraftFromDom();
-  furnitureDraft.supplies.push({ supplyId: "", qty: 0 });
+  furnitureDraft.supplies.unshift({ supplyId: "", qty: 0 });
   renderFurnitureBuilder();
+  elements.furniture.supplyLines.querySelector('[data-field="supplyFilter"]')?.focus();
 }
 
 function addFurnitureWoodLine() {
   syncFurnitureDraftFromDom();
-  furnitureDraft.wood.push(createFurnitureWoodLine());
+  furnitureDraft.wood.unshift(createFurnitureWoodLine());
   renderFurnitureBuilder();
+  elements.furniture.woodLines.querySelector('[data-field="woodFilter"]')?.focus();
 }
 
 function addFurnitureWoodCut(woodIndex) {
@@ -3216,8 +3529,11 @@ function addFurnitureWoodCut(woodIndex) {
     furnitureDraft.wood[woodIndex].cuts = [];
   }
 
-  furnitureDraft.wood[woodIndex].cuts.push(createWoodCut());
+  furnitureDraft.wood[woodIndex].cuts.unshift(createWoodCut());
   renderFurnitureBuilder();
+  elements.furniture.woodLines
+    .querySelector(`[data-kind="wood"][data-index="${woodIndex}"] [data-field="lengthMm"]`)
+    ?.focus();
 }
 
 function removeFurnitureWoodCut(woodIndex, cutIndex) {
@@ -3255,6 +3571,7 @@ function loadSampleData() {
   state.furniture = structuredClone(sampleData.furniture);
   state.invoices = structuredClone(sampleData.invoices);
   state.orders = structuredClone(sampleData.orders);
+  state.settings = structuredClone(sampleData.settings);
   currentOrderId = "";
   orderDraft = [];
   resetFurnitureForm();
@@ -3267,6 +3584,7 @@ function handleTableClick(event) {
   const deleteSupplyButton = event.target.closest("[data-delete-supply]");
   const editWoodButton = event.target.closest("[data-edit-wood]");
   const deleteWoodButton = event.target.closest("[data-delete-wood]");
+  const duplicateFurnitureButton = event.target.closest("[data-duplicate-furniture]");
   const editFurnitureButton = event.target.closest("[data-edit-furniture]");
   const deleteFurnitureButton = event.target.closest("[data-delete-furniture]");
   const furnitureRow = event.target.closest("[data-view-furniture]");
@@ -3289,6 +3607,10 @@ function handleTableClick(event) {
   }
   if (deleteWoodButton) {
     requestDeleteWood(deleteWoodButton.dataset.deleteWood);
+    return;
+  }
+  if (duplicateFurnitureButton) {
+    requestDuplicateFurniture(duplicateFurnitureButton.dataset.duplicateFurniture);
     return;
   }
   if (editFurnitureButton) {
@@ -3317,10 +3639,16 @@ function handleTableClick(event) {
 
 function handleModalBodyClick(event) {
   const printInvoiceButton = event.target.closest("[data-print-invoice]");
+  const discountInvoiceStockButton = event.target.closest("[data-discount-invoice-stock]");
   const cutsToggle = event.target.closest("[data-toggle-cuts]");
 
   if (printInvoiceButton) {
     printInvoice(printInvoiceButton.dataset.printInvoice);
+    return;
+  }
+
+  if (discountInvoiceStockButton) {
+    requestDiscountInvoiceStock(discountInvoiceStockButton.dataset.discountInvoiceStock);
     return;
   }
 
@@ -3458,6 +3786,8 @@ function bindEvents() {
   elements.invoices.table.addEventListener("click", handleTableClick);
   elements.invoices.furniture.addEventListener("change", handleInvoiceChange);
   elements.invoices.price.addEventListener("input", handleInvoiceChange);
+  elements.invoices.deposit.addEventListener("input", handleInvoiceChange);
+  elements.invoices.status.addEventListener("change", handleInvoiceChange);
   elements.invoices.shippingRequired.addEventListener("change", handleInvoiceChange);
   elements.invoices.shippingPrice.addEventListener("input", handleInvoiceChange);
   elements.invoices.location.addEventListener("input", handleInvoiceChange);
@@ -3477,10 +3807,15 @@ function bindEvents() {
   elements.stock.woodList.addEventListener("change", handleStockChange);
   elements.stock.furnitureList.addEventListener("change", handleStockChange);
   elements.metrics.period.addEventListener("change", renderDashboard);
+  elements.settings.suggestedMargin.addEventListener("change", handleSuggestedMarginChange);
 
   elements.modal.close.addEventListener("click", closeModal);
   elements.modal.body.addEventListener("click", handleModalBodyClick);
-  elements.modal.cancel.addEventListener("click", closeModal);
+  elements.modal.cancel.addEventListener("click", () => {
+    const action = modalCancelAction;
+    closeModal();
+    if (action) action();
+  });
   elements.modal.confirm.addEventListener("click", () => {
     const action = modalConfirmAction;
     closeModal();
