@@ -107,10 +107,13 @@ const cloudSync = {
   ready: false,
   saving: false,
   db: null,
+  auth: null,
+  user: null,
   refs: {},
   snapshots: {},
   modules: {},
   businessId: "",
+  unsubscribes: [],
 };
 
 const formatCurrency = new Intl.NumberFormat("es-AR", {
@@ -129,6 +132,7 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const elements = {
   sidebar: $(".sidebar"),
   menuToggle: $("#menu-toggle"),
+  logout: $("#logout-button"),
   syncStatus: $("#sync-status"),
   views: $$(".view"),
   tabs: $$(".nav-tab"),
@@ -236,6 +240,14 @@ const elements = {
     close: $("#modal-close"),
     cancel: $("#modal-cancel"),
     confirm: $("#modal-confirm"),
+  },
+  auth: {
+    gate: $("#auth-gate"),
+    form: $("#login-form"),
+    email: $("#login-email"),
+    password: $("#login-password"),
+    submit: $("#login-submit"),
+    message: $("#login-message"),
   },
 };
 
@@ -843,13 +855,18 @@ function cloudItemsFromSnapshot(snapshot) {
 async function importFirebaseModules() {
   if (cloudSync.modules.initializeApp) return cloudSync.modules;
 
-  const [appModule, firestoreModule] = await Promise.all([
+  const [appModule, authModule, firestoreModule] = await Promise.all([
     import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-auth.js`),
     import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`),
   ]);
 
   cloudSync.modules = {
     initializeApp: appModule.initializeApp,
+    getAuth: authModule.getAuth,
+    onAuthStateChanged: authModule.onAuthStateChanged,
+    signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
+    signOut: authModule.signOut,
     collection: firestoreModule.collection,
     doc: firestoreModule.doc,
     getDocs: firestoreModule.getDocs,
@@ -865,40 +882,83 @@ async function initFirebaseSync() {
   const firebaseConfig = getFirebaseConfig();
 
   if (!hasFirebaseConfig(firebaseConfig)) {
+    document.body.classList.remove("auth-required");
     updateSyncStatus("Guardado local", "local");
     return;
   }
 
   try {
-    updateSyncStatus("Conectando Firebase", "saving");
+    updateSyncStatus("Iniciar sesion", "saving");
     const firebaseModules = await importFirebaseModules();
     const app = firebaseModules.initializeApp(firebaseConfig);
+    cloudSync.auth = firebaseModules.getAuth(app);
     cloudSync.db = firebaseModules.getFirestore(app);
     cloudSync.businessId = getFirebaseBusinessId();
     cloudSync.enabled = true;
 
-    FIREBASE_COLLECTIONS.forEach((collectionName) => {
-      const collectionRef = firebaseModules.collection(
-        cloudSync.db,
-        "businesses",
-        cloudSync.businessId,
-        collectionName,
-      );
-      cloudSync.refs[collectionName] = collectionRef;
-
-      firebaseModules.onSnapshot(
-        collectionRef,
-        (snapshot) => handleCloudSnapshot(collectionName, snapshot),
-        (error) => {
-          console.error("Firebase sync error", error);
-          updateSyncStatus("Error Firebase", "error");
-        },
-      );
-    });
+    firebaseModules.onAuthStateChanged(
+      cloudSync.auth,
+      (user) => {
+        if (user) {
+          handleSignedIn(user);
+        } else {
+          handleSignedOut();
+        }
+      },
+      (error) => {
+        console.error("Firebase auth error", error);
+        updateSyncStatus("Error de acceso", "error");
+      },
+    );
   } catch (error) {
     console.error("Firebase init error", error);
     updateSyncStatus("Firebase sin conexion", "error");
   }
+}
+
+function stopCloudListeners() {
+  cloudSync.unsubscribes.forEach((unsubscribe) => unsubscribe());
+  cloudSync.unsubscribes = [];
+  cloudSync.refs = {};
+  cloudSync.snapshots = {};
+  cloudSync.ready = false;
+}
+
+function handleSignedOut() {
+  cloudSync.user = null;
+  stopCloudListeners();
+  document.body.classList.add("auth-required");
+  elements.logout.classList.add("hidden");
+  updateSyncStatus("Iniciar sesion", "saving");
+}
+
+function handleSignedIn(user) {
+  cloudSync.user = user;
+  document.body.classList.remove("auth-required");
+  elements.logout.classList.remove("hidden");
+  updateSyncStatus("Conectando Firebase", "saving");
+  startCloudListeners();
+}
+
+function startCloudListeners() {
+  stopCloudListeners();
+  const { collection, onSnapshot } = cloudSync.modules;
+
+  FIREBASE_COLLECTIONS.forEach((collectionName) => {
+    const collectionRef = collection(cloudSync.db, "businesses", cloudSync.businessId, collectionName);
+    cloudSync.refs[collectionName] = collectionRef;
+
+    const unsubscribe = onSnapshot(
+      collectionRef,
+      (snapshot) => handleCloudSnapshot(collectionName, snapshot),
+      (error) => {
+        console.error("Firebase sync error", error);
+        updateSyncStatus("Error Firebase", "error");
+      },
+    );
+
+    cloudSync.unsubscribes.push(unsubscribe);
+  });
 }
 
 function handleCloudSnapshot(collectionName, snapshot) {
@@ -931,7 +991,7 @@ function handleCloudSnapshot(collectionName, snapshot) {
 }
 
 function scheduleCloudSave() {
-  if (!cloudSync.enabled) return;
+  if (!cloudSync.enabled || !cloudSync.user) return;
 
   if (!cloudSync.ready) {
     updateSyncStatus("Conectando Firebase", "saving");
@@ -966,7 +1026,7 @@ async function syncCollectionToCloud(collectionName) {
 }
 
 async function writeStateToCloud() {
-  if (!cloudSync.enabled || !cloudSync.ready || cloudSync.saving) return;
+  if (!cloudSync.enabled || !cloudSync.user || !cloudSync.ready || cloudSync.saving) return;
 
   try {
     cloudSync.saving = true;
@@ -982,6 +1042,49 @@ async function writeStateToCloud() {
     updateSyncStatus("Error al guardar", "error");
   } finally {
     cloudSync.saving = false;
+  }
+}
+
+function authErrorMessage(error) {
+  const code = error?.code || "";
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
+    return "Email o contrasena incorrectos.";
+  }
+  if (code.includes("too-many-requests")) return "Demasiados intentos. Espera un momento y proba de nuevo.";
+  if (code.includes("network-request-failed")) return "No hay conexion con Firebase.";
+  return "No se pudo iniciar sesion.";
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  if (!cloudSync.auth) return;
+
+  elements.auth.message.textContent = "Ingresando...";
+  elements.auth.submit.disabled = true;
+
+  try {
+    await cloudSync.modules.signInWithEmailAndPassword(
+      cloudSync.auth,
+      cleanText(elements.auth.email.value),
+      elements.auth.password.value,
+    );
+    elements.auth.password.value = "";
+    elements.auth.message.textContent = "";
+  } catch (error) {
+    elements.auth.message.textContent = authErrorMessage(error);
+  } finally {
+    elements.auth.submit.disabled = false;
+  }
+}
+
+async function handleLogout() {
+  if (!cloudSync.auth) return;
+
+  try {
+    await cloudSync.modules.signOut(cloudSync.auth);
+  } catch (error) {
+    console.error("Firebase logout error", error);
+    updateSyncStatus("Error al salir", "error");
   }
 }
 
@@ -2112,6 +2215,9 @@ function handleFurnitureLineClick(event) {
 }
 
 function bindEvents() {
+  elements.auth.form.addEventListener("submit", handleLoginSubmit);
+  elements.logout.addEventListener("click", handleLogout);
+
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       setActiveView(tab.dataset.view);

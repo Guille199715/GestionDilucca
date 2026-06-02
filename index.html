@@ -6,7 +6,7 @@
     <title>Gestion de Muebleria</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="auth-required">
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegacion principal">
         <div class="sidebar-top">
@@ -33,6 +33,8 @@
           <button class="nav-tab" type="button" data-view="furniture">Muebles</button>
           <button class="nav-tab" type="button" data-view="invoices">Facturas</button>
         </nav>
+
+        <button class="logout-button hidden" type="button" id="logout-button">Cerrar sesion</button>
       </aside>
 
       <main class="workspace">
@@ -410,6 +412,27 @@
           </section>
         </section>
       </main>
+    </div>
+
+    <div class="auth-gate" id="auth-gate">
+      <form class="auth-card" id="login-form" autocomplete="on">
+        <span class="brand-mark">DL</span>
+        <div>
+          <p class="eyebrow">Acceso privado</p>
+          <h1>Ingresar a DiLucca</h1>
+          <p>Usa el usuario creado en Firebase para gestionar tus datos.</p>
+        </div>
+        <label>
+          <span>Email</span>
+          <input id="login-email" type="email" autocomplete="email" required />
+        </label>
+        <label>
+          <span>Contrasena</span>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="primary-button" type="submit" id="login-submit">Ingresar</button>
+        <p class="auth-message" id="login-message"></p>
+      </form>
     </div>
 
     <template id="empty-state-template">
