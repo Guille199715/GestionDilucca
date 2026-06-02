@@ -104,6 +104,26 @@ button {
   margin-top: 2px;
 }
 
+.sync-status {
+  display: inline-block;
+  margin-top: 5px;
+  color: #aebfba;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.sync-status[data-status="online"] {
+  color: #c8f3d6;
+}
+
+.sync-status[data-status="saving"] {
+  color: #ffe0a3;
+}
+
+.sync-status[data-status="error"] {
+  color: #ffb5ad;
+}
+
 .nav-tabs {
   display: grid;
   gap: 8px;
@@ -352,12 +372,24 @@ select:focus {
   white-space: nowrap;
 }
 
+.compact-item > div {
+  min-width: 0;
+}
+
+.compact-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .compact-item span,
 .compact-item small {
   color: var(--muted);
 }
 
 .compact-item strong {
+  display: block;
   font-size: 0.95rem;
 }
 
@@ -1095,6 +1127,16 @@ tbody tr:hover td {
   .invoice-summary-grid,
   .entry-form {
     grid-template-columns: 1fr;
+  }
+
+  .compact-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .compact-item span {
+    justify-self: start;
+    max-width: 100%;
   }
 
   .line-row {

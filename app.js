@@ -1,5 +1,7 @@
 const STORAGE_KEY = "dilucca-management-v1";
 const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
+const FIREBASE_SDK_VERSION = "12.14.0";
+const FIREBASE_COLLECTIONS = ["supplies", "wood", "furniture", "invoices"];
 
 const sampleData = {
   supplies: [
@@ -97,6 +99,19 @@ const state = loadState();
 let furnitureDraft = createFurnitureDraft();
 let modalConfirmAction = null;
 let currentFurniturePhoto = "";
+let storageWarningShown = false;
+let cloudSaveTimer = null;
+
+const cloudSync = {
+  enabled: false,
+  ready: false,
+  saving: false,
+  db: null,
+  refs: {},
+  snapshots: {},
+  modules: {},
+  businessId: "",
+};
 
 const formatCurrency = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -114,9 +129,9 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const elements = {
   sidebar: $(".sidebar"),
   menuToggle: $("#menu-toggle"),
+  syncStatus: $("#sync-status"),
   views: $$(".view"),
   tabs: $$(".nav-tab"),
-  loadSample: $("#load-sample"),
   supplies: {
     form: $("#supply-form"),
     id: $("#supply-id"),
@@ -224,24 +239,90 @@ const elements = {
   },
 };
 
+function emptyState() {
+  return { supplies: [], wood: [], furniture: [], invoices: [] };
+}
+
+function normalizeState(source = emptyState()) {
+  return {
+    supplies: Array.isArray(source.supplies) ? source.supplies : [],
+    wood: Array.isArray(source.wood) ? source.wood : [],
+    furniture: Array.isArray(source.furniture) ? source.furniture : [],
+    invoices: Array.isArray(source.invoices) ? source.invoices : [],
+  };
+}
+
+function replaceState(nextState) {
+  const normalized = normalizeState(nextState);
+  FIREBASE_COLLECTIONS.forEach((collectionName) => {
+    state[collectionName] = normalized[collectionName];
+  });
+}
+
+function hasStateData(source = state) {
+  return FIREBASE_COLLECTIONS.some((collectionName) => source[collectionName]?.length);
+}
+
 function loadState() {
-  const fallback = { supplies: [], wood: [], furniture: [], invoices: [] };
+  const fallback = emptyState();
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : fallback;
-    return {
-      supplies: Array.isArray(parsed.supplies) ? parsed.supplies : [],
-      wood: Array.isArray(parsed.wood) ? parsed.wood : [],
-      furniture: Array.isArray(parsed.furniture) ? parsed.furniture : [],
-      invoices: Array.isArray(parsed.invoices) ? parsed.invoices : [],
-    };
+    return normalizeState(parsed);
   } catch {
     return fallback;
   }
 }
 
+function showStorageWarning(message) {
+  if (storageWarningShown) return;
+  storageWarningShown = true;
+  setTimeout(() => alert(message), 0);
+}
+
+function updateSyncStatus(message, status = "local") {
+  if (!elements.syncStatus) return;
+  elements.syncStatus.textContent = message;
+  elements.syncStatus.dataset.status = status;
+}
+
+function stateWithoutPhotos(source) {
+  return {
+    ...source,
+    furniture: source.furniture.map((item) => ({
+      ...item,
+      photo: "",
+    })),
+  };
+}
+
+function persistLocalState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch {
+    const lighterState = stateWithoutPhotos(state);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lighterState));
+      state.furniture = lighterState.furniture;
+      currentFurniturePhoto = "";
+      showStorageWarning(
+        "El navegador no tenia espacio para guardar las fotos. Guarde los datos sin fotos para no perder insumos, madera, muebles y facturas.",
+      );
+      return true;
+    } catch {
+      showStorageWarning(
+        "No se pudo guardar en este navegador. Para usarlo desde PC y celular hace falta conectar una base de datos online.",
+      );
+      return false;
+    }
+  }
+}
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistLocalState();
+  scheduleCloudSave();
 }
 
 function createId(prefix) {
@@ -734,6 +815,174 @@ function renderAll() {
   renderInvoiceFurnitureOptions();
   updateInvoiceSummary();
   renderDashboard();
+}
+
+function getFirebaseConfig() {
+  return window.DILUCCA_FIREBASE_CONFIG || {};
+}
+
+function hasFirebaseConfig(config) {
+  return ["apiKey", "authDomain", "projectId", "appId"].every((key) => cleanText(config[key]));
+}
+
+function getFirebaseBusinessId() {
+  return cleanText(window.DILUCCA_FIREBASE_BUSINESS_ID) || "dilucca";
+}
+
+function toCloudItem(item) {
+  return JSON.parse(JSON.stringify(item));
+}
+
+function cloudItemsFromSnapshot(snapshot) {
+  return snapshot.docs.map((documentSnapshot) => ({
+    ...documentSnapshot.data(),
+    id: documentSnapshot.id,
+  }));
+}
+
+async function importFirebaseModules() {
+  if (cloudSync.modules.initializeApp) return cloudSync.modules;
+
+  const [appModule, firestoreModule] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`),
+  ]);
+
+  cloudSync.modules = {
+    initializeApp: appModule.initializeApp,
+    collection: firestoreModule.collection,
+    doc: firestoreModule.doc,
+    getDocs: firestoreModule.getDocs,
+    getFirestore: firestoreModule.getFirestore,
+    onSnapshot: firestoreModule.onSnapshot,
+    writeBatch: firestoreModule.writeBatch,
+  };
+
+  return cloudSync.modules;
+}
+
+async function initFirebaseSync() {
+  const firebaseConfig = getFirebaseConfig();
+
+  if (!hasFirebaseConfig(firebaseConfig)) {
+    updateSyncStatus("Guardado local", "local");
+    return;
+  }
+
+  try {
+    updateSyncStatus("Conectando Firebase", "saving");
+    const firebaseModules = await importFirebaseModules();
+    const app = firebaseModules.initializeApp(firebaseConfig);
+    cloudSync.db = firebaseModules.getFirestore(app);
+    cloudSync.businessId = getFirebaseBusinessId();
+    cloudSync.enabled = true;
+
+    FIREBASE_COLLECTIONS.forEach((collectionName) => {
+      const collectionRef = firebaseModules.collection(
+        cloudSync.db,
+        "businesses",
+        cloudSync.businessId,
+        collectionName,
+      );
+      cloudSync.refs[collectionName] = collectionRef;
+
+      firebaseModules.onSnapshot(
+        collectionRef,
+        (snapshot) => handleCloudSnapshot(collectionName, snapshot),
+        (error) => {
+          console.error("Firebase sync error", error);
+          updateSyncStatus("Error Firebase", "error");
+        },
+      );
+    });
+  } catch (error) {
+    console.error("Firebase init error", error);
+    updateSyncStatus("Firebase sin conexion", "error");
+  }
+}
+
+function handleCloudSnapshot(collectionName, snapshot) {
+  cloudSync.snapshots[collectionName] = cloudItemsFromSnapshot(snapshot);
+
+  const hasAllSnapshots = FIREBASE_COLLECTIONS.every((name) => Array.isArray(cloudSync.snapshots[name]));
+  if (!hasAllSnapshots) return;
+
+  const remoteState = normalizeState({
+    supplies: cloudSync.snapshots.supplies,
+    wood: cloudSync.snapshots.wood,
+    furniture: cloudSync.snapshots.furniture,
+    invoices: cloudSync.snapshots.invoices,
+  });
+
+  if (!cloudSync.ready) {
+    cloudSync.ready = true;
+
+    if (!hasStateData(remoteState) && hasStateData(state)) {
+      updateSyncStatus("Subiendo datos locales", "saving");
+      writeStateToCloud();
+      return;
+    }
+  }
+
+  replaceState(remoteState);
+  persistLocalState();
+  renderAll();
+  updateSyncStatus(cloudSync.saving ? "Sincronizando" : "Firebase conectado", "online");
+}
+
+function scheduleCloudSave() {
+  if (!cloudSync.enabled) return;
+
+  if (!cloudSync.ready) {
+    updateSyncStatus("Conectando Firebase", "saving");
+    return;
+  }
+
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(writeStateToCloud, 350);
+}
+
+async function syncCollectionToCloud(collectionName) {
+  const { doc, getDocs, writeBatch } = cloudSync.modules;
+  const collectionRef = cloudSync.refs[collectionName];
+  const snapshot = await getDocs(collectionRef);
+  const localIds = new Set(state[collectionName].map((item) => item.id).filter(Boolean));
+  const batch = writeBatch(cloudSync.db);
+  let operations = 0;
+
+  state[collectionName].forEach((item) => {
+    if (!item.id) return;
+    batch.set(doc(collectionRef, item.id), toCloudItem(item));
+    operations += 1;
+  });
+
+  snapshot.docs.forEach((documentSnapshot) => {
+    if (localIds.has(documentSnapshot.id)) return;
+    batch.delete(documentSnapshot.ref);
+    operations += 1;
+  });
+
+  if (operations) await batch.commit();
+}
+
+async function writeStateToCloud() {
+  if (!cloudSync.enabled || !cloudSync.ready || cloudSync.saving) return;
+
+  try {
+    cloudSync.saving = true;
+    updateSyncStatus("Sincronizando", "saving");
+
+    for (const collectionName of FIREBASE_COLLECTIONS) {
+      await syncCollectionToCloud(collectionName);
+    }
+
+    updateSyncStatus("Firebase conectado", "online");
+  } catch (error) {
+    console.error("Firebase save error", error);
+    updateSyncStatus("Error al guardar", "error");
+  } finally {
+    cloudSync.saving = false;
+  }
 }
 
 function emptyRow(colspan) {
@@ -1932,8 +2181,8 @@ function bindEvents() {
     if (event.key === "Escape" && !elements.modal.root.classList.contains("hidden")) closeModal();
   });
 
-  elements.loadSample.addEventListener("click", loadSampleData);
 }
 
 bindEvents();
 renderAll();
+initFirebaseSync();
