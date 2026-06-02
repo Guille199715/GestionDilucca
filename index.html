@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestión de Mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260602-acentos" />
+    <link rel="stylesheet" href="styles.css?v=20260602-supplies-mobile" />
   </head>
-  <body class="auth-required">
+  <body class="auth-loading">
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegación principal">
         <div class="sidebar-top">
@@ -28,10 +28,11 @@
 
         <nav class="nav-tabs" id="main-nav" aria-label="Secciones">
           <button class="nav-tab active" type="button" data-view="dashboard">Resumen</button>
+          <button class="nav-tab" type="button" data-view="stock">Stock</button>
           <button class="nav-tab" type="button" data-view="supplies">Insumos</button>
           <button class="nav-tab" type="button" data-view="wood">Madera</button>
           <button class="nav-tab" type="button" data-view="furniture">Muebles</button>
-          <button class="nav-tab" type="button" data-view="invoices">Facturas</button>
+          <button class="nav-tab" type="button" data-view="invoices">Ventas</button>
           <button class="nav-tab" type="button" data-view="orders">Pedidos</button>
         </nav>
 
@@ -43,45 +44,127 @@
           <div class="view-heading">
             <div>
               <p class="eyebrow">Panel de control</p>
-              <h2 id="dashboard-title">Resumen general</h2>
+              <h2 id="dashboard-title">Resumen</h2>
+            </div>
+            <label class="period-filter">
+              <span>Mes</span>
+              <select id="dashboard-period">
+                <option value="all">Acumulado</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="metric-grid dashboard-metric-grid" aria-label="Indicadores de ventas">
+            <article class="metric-card">
+              <span>Ventas realizadas</span>
+              <strong id="metric-sales-count">0</strong>
+              <small id="metric-sales-period">Acumulado</small>
+            </article>
+            <article class="metric-card">
+              <span>Dinero ingresado</span>
+              <strong id="metric-sales-income">$0</strong>
+              <small>sin envío</small>
+            </article>
+            <article class="metric-card">
+              <span>Ganancia</span>
+              <strong id="metric-sales-profit">$0</strong>
+              <small>sin envío</small>
+            </article>
+            <article class="metric-card">
+              <span>Stock muebles</span>
+              <strong id="metric-furniture-stock-cost">$0</strong>
+              <small>costo actual</small>
+            </article>
+            <article class="metric-card">
+              <span>Insumos sin stock</span>
+              <strong id="metric-low-supply-count">0</strong>
+              <small>stock actual</small>
+            </article>
+          </div>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h3>Acumulado general</h3>
+              <span id="metric-accumulated-period">Total histórico</span>
+            </div>
+            <div class="dashboard-accumulated-grid">
+              <div class="summary-pill">
+                <span>Ventas</span>
+                <strong id="metric-accumulated-sales">0</strong>
+              </div>
+              <div class="summary-pill">
+                <span>Ingresado</span>
+                <strong id="metric-accumulated-income">$0</strong>
+              </div>
+              <div class="summary-pill">
+                <span>Ganancia</span>
+                <strong id="metric-accumulated-profit">$0</strong>
+              </div>
+              <div class="summary-pill">
+                <span>Stock muebles</span>
+                <strong id="metric-accumulated-stock-cost">$0</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h3>Insumos sin stock</h3>
+              <span id="low-stock-count-label">0 ítems</span>
+            </div>
+            <div class="compact-list" id="low-stock-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="stock" aria-labelledby="stock-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Inventario general</p>
+              <h2 id="stock-title">Stock</h2>
             </div>
           </div>
 
-          <div class="metric-grid" aria-label="Indicadores">
-            <article class="metric-card">
-              <span>Insumos</span>
-              <strong id="metric-supplies-count">0</strong>
-              <small id="metric-supplies-value">$0</small>
-            </article>
-            <article class="metric-card">
-              <span>Madera útil</span>
-              <strong id="metric-wood-area">0 m2</strong>
-              <small id="metric-wood-value">$0 usados</small>
-            </article>
-            <article class="metric-card">
-              <span>Precio unitario promedio</span>
-              <strong id="metric-average-unit">$0</strong>
-              <small>insumos cargados</small>
-            </article>
-            <article class="metric-card">
-              <span>Espesores activos</span>
-              <strong id="metric-thickness-count">0</strong>
-              <small>en stock de madera</small>
-            </article>
-          </div>
+          <label class="stock-mobile-control">
+            <span>Ver stock</span>
+            <select id="stock-mobile-select">
+              <option value="supplies">Insumos</option>
+              <option value="wood">Maderas</option>
+              <option value="furniture">Muebles</option>
+            </select>
+          </label>
 
-          <div class="dashboard-grid">
-            <section class="panel">
+          <div class="stock-columns">
+            <section class="panel stock-column" data-stock-panel="supplies">
               <div class="panel-title">
-                <h3>Últimos insumos</h3>
+                <h3>Insumos</h3>
+                <span id="stock-supply-label">0 ítems</span>
               </div>
-              <div class="compact-list" id="latest-supplies"></div>
+              <div class="stock-search">
+                <input id="stock-supply-search" type="search" placeholder="Buscar insumo" autocomplete="off" />
+              </div>
+              <div class="stock-list" id="stock-supply-list"></div>
             </section>
-            <section class="panel">
+
+            <section class="panel stock-column" data-stock-panel="wood">
               <div class="panel-title">
-                <h3>Madera útil por espesor</h3>
+                <h3>Maderas</h3>
+                <span id="stock-wood-label">0 lotes</span>
               </div>
-              <div class="compact-list" id="wood-by-thickness"></div>
+              <div class="stock-search">
+                <input id="stock-wood-search" type="search" placeholder="Buscar madera" autocomplete="off" />
+              </div>
+              <div class="stock-list" id="stock-wood-list"></div>
+            </section>
+
+            <section class="panel stock-column" data-stock-panel="furniture">
+              <div class="panel-title">
+                <h3>Muebles</h3>
+                <span id="stock-furniture-label">0 muebles</span>
+              </div>
+              <div class="stock-search">
+                <input id="stock-furniture-search" type="search" placeholder="Buscar mueble" autocomplete="off" />
+              </div>
+              <div class="stock-list" id="stock-furniture-list"></div>
             </section>
           </div>
         </section>
@@ -94,7 +177,6 @@
             </div>
             <div class="toolbar">
               <input id="supply-search" type="search" placeholder="Buscar insumo" autocomplete="off" />
-              <button class="danger-button" type="button" id="clear-supplies">Vaciar</button>
             </div>
           </div>
 
@@ -177,7 +259,6 @@
             </div>
             <div class="toolbar">
               <input id="wood-search" type="search" placeholder="Buscar tipo, color o proveedor" autocomplete="off" />
-              <button class="danger-button" type="button" id="clear-wood">Vaciar</button>
             </div>
           </div>
 
@@ -253,7 +334,6 @@
             <div class="toolbar">
               <button class="primary-button" type="button" id="show-furniture-form">Agregar mueble</button>
               <input id="furniture-search" type="search" placeholder="Buscar mueble" autocomplete="off" />
-              <button class="danger-button" type="button" id="clear-furniture">Vaciar</button>
             </div>
           </div>
 
@@ -266,6 +346,18 @@
             <label>
               <span>Detalle</span>
               <input id="furniture-notes" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Largo mm</span>
+              <input id="furniture-length" type="number" min="0" step="1" placeholder="Ej: 1800" />
+            </label>
+            <label>
+              <span>Ancho mm</span>
+              <input id="furniture-width" type="number" min="0" step="1" placeholder="Ej: 600" />
+            </label>
+            <label>
+              <span>Alto mm</span>
+              <input id="furniture-height" type="number" min="0" step="1" placeholder="Ej: 850" />
             </label>
             <label>
               <span>Foto</span>
@@ -318,12 +410,11 @@
           <div class="view-heading">
             <div>
               <p class="eyebrow">Ventas y entregas</p>
-              <h2 id="invoices-title">Facturas</h2>
+              <h2 id="invoices-title">Ventas</h2>
             </div>
             <div class="toolbar">
-              <button class="primary-button" type="button" id="show-invoice-form">Agregar factura</button>
-              <input id="invoice-search" type="search" placeholder="Buscar factura" autocomplete="off" />
-              <button class="danger-button" type="button" id="clear-invoices">Vaciar</button>
+              <button class="primary-button" type="button" id="show-invoice-form">Agregar venta</button>
+              <input id="invoice-search" type="search" placeholder="Buscar venta" autocomplete="off" />
             </div>
           </div>
 
@@ -346,7 +437,7 @@
               <input id="invoice-date" type="date" />
             </label>
             <label>
-              <span>Precio en factura</span>
+              <span>Precio de venta</span>
               <input id="invoice-price" type="number" min="0" step="0.01" required />
             </label>
             <label>
@@ -376,7 +467,7 @@
               <input id="invoice-notes" type="text" placeholder="Opcional" />
             </label>
             <div class="form-actions">
-              <button class="primary-button" type="submit" id="invoice-submit">Guardar factura</button>
+              <button class="primary-button" type="submit" id="invoice-submit">Guardar venta</button>
               <button class="secondary-button hidden" type="button" id="invoice-cancel">Cancelar</button>
             </div>
           </form>
@@ -388,7 +479,7 @@
               <small>según mueble elegido</small>
             </article>
             <article class="metric-card">
-              <span>Total factura</span>
+              <span>Total venta</span>
               <strong id="invoice-total">$0</strong>
               <small>precio + envío</small>
             </article>
@@ -406,8 +497,8 @@
 
           <section class="panel table-panel">
             <div class="panel-title">
-              <h3>Facturas cargadas</h3>
-              <span id="invoice-count-label">0 facturas</span>
+              <h3>Ventas cargadas</h3>
+              <span id="invoice-count-label">0 ventas</span>
             </div>
             <div class="invoice-grid" id="invoice-table"></div>
           </section>
@@ -564,7 +655,7 @@
       </div>
     </div>
 
-    <script src="firebase-config.js?v=20260602-acentos"></script>
-    <script src="app.js?v=20260602-acentos"></script>
+    <script src="firebase-config.js?v=20260602-supplies-mobile"></script>
+    <script src="app.js?v=20260602-supplies-mobile"></script>
   </body>
 </html>

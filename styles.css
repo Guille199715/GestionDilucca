@@ -46,13 +46,20 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 100vh;
   min-width: 0;
   max-width: 100vw;
 }
 
 .sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  width: 280px;
+  height: 100vh;
+  overflow-y: auto;
   background: #233235;
   color: #f8faf7;
   padding: 28px 22px;
@@ -125,6 +132,7 @@ button {
 }
 
 .logout-button {
+  margin-top: auto;
   min-height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
@@ -139,6 +147,7 @@ button {
   outline: none;
 }
 
+.auth-loading .app-shell,
 .auth-required .app-shell {
   display: none;
 }
@@ -153,8 +162,30 @@ button {
     var(--bg);
 }
 
+.auth-loading .auth-gate,
 .auth-required .auth-gate {
   display: grid;
+}
+
+.auth-loading .auth-card {
+  display: none;
+}
+
+.auth-gate::before {
+  display: none;
+}
+
+.auth-loading .auth-gate::before {
+  content: "Conectando con Firebase...";
+  display: grid;
+  place-items: center;
+  min-height: 58px;
+  padding: 0 22px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--brand-strong);
+  font-weight: 800;
+  box-shadow: var(--shadow);
 }
 
 .auth-card {
@@ -315,6 +346,7 @@ button {
 }
 
 .workspace {
+  margin-left: 280px;
   padding: 30px;
   overflow-x: hidden;
   min-width: 0;
@@ -382,6 +414,18 @@ select:focus {
 
 .toolbar input {
   width: min(280px, 100%);
+}
+
+.period-filter {
+  display: grid;
+  gap: 7px;
+  width: min(230px, 100%);
+}
+
+.period-filter span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
 }
 
 .primary-button,
@@ -461,6 +505,44 @@ select:focus {
   font-size: 1.6rem;
 }
 
+.dashboard-metric-grid {
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+}
+
+.dashboard-accumulated-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.summary-pill {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.summary-pill span,
+.summary-pill strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-pill span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.summary-pill strong {
+  margin-top: 6px;
+  font-size: 1.1rem;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -533,6 +615,12 @@ select:focus {
 .compact-item strong {
   display: block;
   font-size: 0.95rem;
+}
+
+.compact-item.stock-empty strong,
+.compact-item.stock-empty small,
+.compact-item.stock-empty span {
+  color: var(--danger);
 }
 
 .entry-form {
@@ -737,6 +825,12 @@ td {
   min-width: 760px;
 }
 
+.stock-supply-table,
+.stock-wood-table,
+.stock-furniture-table {
+  min-width: 820px;
+}
+
 .saved-order-table th:nth-child(1),
 .saved-order-table td:nth-child(1) {
   width: 34%;
@@ -876,6 +970,100 @@ tbody tr:hover td {
 
 .order-summary-grid {
   grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.stock-mobile-control {
+  display: none;
+}
+
+.stock-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.stock-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.stock-search {
+  padding: 12px 16px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.stock-search input {
+  width: 100%;
+  min-height: 44px;
+  border-color: #cfd8d2;
+  background: var(--surface);
+  padding: 0 14px;
+  box-shadow: inset 0 1px 0 rgba(31, 41, 51, 0.03);
+}
+
+.stock-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 140px);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.stock-item.stock-empty .stock-description strong,
+.stock-item.stock-empty .stock-description small,
+.stock-item.stock-empty .stock-edit span,
+.stock-item.stock-empty .stock-edit input {
+  color: var(--danger);
+}
+
+.stock-item.stock-empty .stock-edit input {
+  border-color: #efb8b8;
+  background: #fff7f7;
+}
+
+.stock-description {
+  min-width: 0;
+}
+
+.stock-description strong,
+.stock-description small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-description small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.stock-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.stock-edit input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 9px;
+  text-align: right;
+}
+
+.stock-edit span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .invoice-grid {
@@ -1038,7 +1226,7 @@ tbody tr:hover td {
 }
 
 .line-panel {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .line-list {
@@ -1058,6 +1246,51 @@ tbody tr:hover td {
   display: grid;
   gap: 7px;
   min-width: 0;
+}
+
+.line-picker {
+  position: relative;
+}
+
+.line-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 35;
+  display: grid;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 16px 34px rgba(31, 41, 51, 0.18);
+}
+
+.line-option {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+
+.line-option:hover,
+.line-option:focus-visible,
+.line-option.is-selected {
+  background: #e7f0e9;
+  color: var(--brand-strong);
+  outline: none;
+}
+
+.line-dropdown-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .line-row span,
@@ -1353,9 +1586,20 @@ tbody tr:hover td {
   .sidebar {
     position: sticky;
     top: 0;
+    left: auto;
     z-index: 10;
+    width: auto;
+    height: auto;
+    align-self: auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: visible;
     padding: 16px;
     gap: 16px;
+  }
+
+  .workspace {
+    margin-left: 0;
   }
 
   .nav-tabs {
@@ -1367,6 +1611,7 @@ tbody tr:hover td {
   }
 
   .metric-grid,
+  .dashboard-accumulated-grid,
   .dashboard-grid,
   .builder-grid,
   .invoice-summary-grid {
@@ -1390,8 +1635,13 @@ tbody tr:hover td {
     max-width: 100vw;
   }
 
+  .app-shell {
+    min-height: 0;
+  }
+
   .sidebar {
     padding: 14px;
+    gap: 12px;
   }
 
   .brand {
@@ -1421,6 +1671,15 @@ tbody tr:hover td {
     display: grid;
   }
 
+  .logout-button {
+    display: none;
+  }
+
+  .sidebar.menu-open .logout-button:not(.hidden) {
+    display: block;
+    margin-top: 10px;
+  }
+
   .nav-tab {
     min-width: 0;
     padding: 0 12px;
@@ -1436,6 +1695,10 @@ tbody tr:hover td {
     flex-direction: column;
   }
 
+  .period-filter {
+    width: 100%;
+  }
+
   .toolbar {
     justify-content: stretch;
     min-width: 0;
@@ -1447,11 +1710,144 @@ tbody tr:hover td {
   }
 
   .metric-grid,
+  .dashboard-accumulated-grid,
   .dashboard-grid,
   .builder-grid,
   .invoice-summary-grid,
   .entry-form {
     grid-template-columns: 1fr;
+  }
+
+  .stock-mobile-control {
+    display: grid;
+    gap: 7px;
+  }
+
+  .stock-mobile-control span {
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 800;
+  }
+
+  .stock-columns {
+    display: block;
+  }
+
+  .stock-column {
+    display: none;
+  }
+
+  .stock-column.stock-panel-active {
+    display: block;
+  }
+
+  .stock-list {
+    padding: 12px;
+  }
+
+  .stock-item {
+    grid-template-columns: minmax(0, 1fr) minmax(104px, 122px);
+    padding: 10px;
+  }
+
+  .supplies-table {
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .supplies-table thead {
+    display: none;
+  }
+
+  .supplies-table,
+  .supplies-table tbody,
+  .supplies-table tr,
+  .supplies-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .supplies-table td:nth-child(1),
+  .supplies-table td:nth-child(2),
+  .supplies-table td:nth-child(3),
+  .supplies-table td:nth-child(4),
+  .supplies-table td:nth-child(5),
+  .supplies-table td:nth-child(6),
+  .supplies-table td:nth-child(7),
+  .supplies-table td:nth-child(8) {
+    width: 100%;
+  }
+
+  .supplies-table tr {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .supplies-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .supplies-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.45fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 0;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .supplies-table td::before {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .supplies-table td:nth-child(1)::before {
+    content: "Insumo";
+  }
+
+  .supplies-table td:nth-child(2)::before {
+    content: "Categoría";
+  }
+
+  .supplies-table td:nth-child(3)::before {
+    content: "Pack";
+  }
+
+  .supplies-table td:nth-child(4)::before {
+    content: "Precio pack";
+  }
+
+  .supplies-table td:nth-child(5)::before {
+    content: "Precio unidad";
+  }
+
+  .supplies-table td:nth-child(6)::before {
+    content: "Stock";
+  }
+
+  .supplies-table td:nth-child(7)::before {
+    content: "Valor stock";
+  }
+
+  .supplies-table td:nth-child(8) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .supplies-table td:nth-child(8)::before {
+    content: "Acciones";
+    flex: 0 0 100%;
+  }
+
+  .supplies-table td:nth-child(8) .table-action {
+    flex: 1 1 108px;
   }
 
   .compact-item {

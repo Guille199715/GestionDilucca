@@ -112,6 +112,7 @@ let modalConfirmAction = null;
 let currentFurniturePhoto = "";
 let storageWarningShown = false;
 let cloudSaveTimer = null;
+let activeStockPanel = "supplies";
 
 const cloudSync = {
   enabled: false,
@@ -162,7 +163,6 @@ const elements = {
     search: $("#supply-search"),
     table: $("#supply-table"),
     count: $("#supply-count-label"),
-    clear: $("#clear-supplies"),
   },
   wood: {
     form: $("#wood-form"),
@@ -179,7 +179,6 @@ const elements = {
     search: $("#wood-search"),
     table: $("#wood-table"),
     count: $("#wood-count-label"),
-    clear: $("#clear-wood"),
   },
   furniture: {
     form: $("#furniture-form"),
@@ -188,6 +187,9 @@ const elements = {
     id: $("#furniture-id"),
     name: $("#furniture-name"),
     notes: $("#furniture-notes"),
+    length: $("#furniture-length"),
+    width: $("#furniture-width"),
+    height: $("#furniture-height"),
     photo: $("#furniture-photo"),
     photoPreview: $("#furniture-photo-preview"),
     photoImage: $("#furniture-photo-image"),
@@ -197,7 +199,6 @@ const elements = {
     search: $("#furniture-search"),
     table: $("#furniture-table"),
     count: $("#furniture-count-label"),
-    clear: $("#clear-furniture"),
     addSupply: $("#add-furniture-supply"),
     addWood: $("#add-furniture-wood"),
     supplyLines: $("#furniture-supply-lines"),
@@ -225,7 +226,6 @@ const elements = {
     search: $("#invoice-search"),
     table: $("#invoice-table"),
     count: $("#invoice-count-label"),
-    clear: $("#clear-invoices"),
     cost: $("#invoice-cost"),
     total: $("#invoice-total"),
     profit: $("#invoice-profit"),
@@ -248,15 +248,34 @@ const elements = {
     savedTable: $("#saved-order-table"),
     savedCount: $("#saved-order-count-label"),
   },
+  stock: {
+    supplyLabel: $("#stock-supply-label"),
+    woodLabel: $("#stock-wood-label"),
+    furnitureLabel: $("#stock-furniture-label"),
+    supplySearch: $("#stock-supply-search"),
+    woodSearch: $("#stock-wood-search"),
+    furnitureSearch: $("#stock-furniture-search"),
+    supplyList: $("#stock-supply-list"),
+    woodList: $("#stock-wood-list"),
+    furnitureList: $("#stock-furniture-list"),
+    mobileSelect: $("#stock-mobile-select"),
+    panels: $$("[data-stock-panel]"),
+  },
   metrics: {
-    suppliesCount: $("#metric-supplies-count"),
-    suppliesValue: $("#metric-supplies-value"),
-    woodArea: $("#metric-wood-area"),
-    woodValue: $("#metric-wood-value"),
-    averageUnit: $("#metric-average-unit"),
-    thicknessCount: $("#metric-thickness-count"),
-    latestSupplies: $("#latest-supplies"),
-    woodByThickness: $("#wood-by-thickness"),
+    period: $("#dashboard-period"),
+    salesCount: $("#metric-sales-count"),
+    salesPeriod: $("#metric-sales-period"),
+    salesIncome: $("#metric-sales-income"),
+    salesProfit: $("#metric-sales-profit"),
+    furnitureStockCost: $("#metric-furniture-stock-cost"),
+    lowSupplyCount: $("#metric-low-supply-count"),
+    accumulatedPeriod: $("#metric-accumulated-period"),
+    accumulatedSales: $("#metric-accumulated-sales"),
+    accumulatedIncome: $("#metric-accumulated-income"),
+    accumulatedProfit: $("#metric-accumulated-profit"),
+    accumulatedStockCost: $("#metric-accumulated-stock-cost"),
+    lowStockCountLabel: $("#low-stock-count-label"),
+    lowStockList: $("#low-stock-list"),
   },
   modal: {
     root: $("#app-modal"),
@@ -289,6 +308,7 @@ function normalizeState(source = emptyState()) {
     wood: Array.isArray(source.wood) ? source.wood : [],
     furniture: Array.isArray(source.furniture) ? source.furniture : [],
     invoices: Array.isArray(source.invoices) ? source.invoices : [],
+    orders: Array.isArray(source.orders) ? source.orders : [],
   };
 }
 
@@ -326,6 +346,11 @@ function updateSyncStatus(message, status = "local") {
   elements.syncStatus.dataset.status = status;
 }
 
+function setAuthScreen(mode) {
+  document.body.classList.toggle("auth-loading", mode === "loading");
+  document.body.classList.toggle("auth-required", mode === "required");
+}
+
 function stateWithoutPhotos(source) {
   return {
     ...source,
@@ -348,7 +373,7 @@ function persistLocalState() {
       state.furniture = lighterState.furniture;
       currentFurniturePhoto = "";
       showStorageWarning(
-        "El navegador no tenía espacio para guardar las fotos. Guardé los datos sin fotos para no perder insumos, madera, muebles y facturas.",
+        "El navegador no tenía espacio para guardar las fotos. Guardé los datos sin fotos para no perder insumos, madera, muebles y ventas.",
       );
       return true;
     } catch {
@@ -502,6 +527,21 @@ function furnitureInitials(name) {
     .toUpperCase() || "M";
 }
 
+function furnitureDimensionsText(item) {
+  const length = Number(item.lengthMm || 0);
+  const width = Number(item.widthMm || 0);
+  const height = Number(item.heightMm || 0);
+  if (!length && !width && !height) return "";
+
+  return [
+    length ? `Largo ${formatNumber.format(length)} mm` : "",
+    width ? `Ancho ${formatNumber.format(width)} mm` : "",
+    height ? `Alto ${formatNumber.format(height)} mm` : "",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
 function furnitureById(id) {
   return state.furniture.find((item) => item.id === id);
 }
@@ -525,6 +565,58 @@ function invoiceTotal(invoice) {
 
 function invoiceProfit(invoice) {
   return Number(invoice.price || 0) - invoiceFurnitureCost(invoice);
+}
+
+function invoiceMonthKey(invoice) {
+  const value = cleanText(invoice.date || invoice.createdAt);
+  const match = value.match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : "";
+}
+
+function monthLabel(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!year || !month) return "Sin fecha";
+
+  const label = new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function dashboardMonthKeys() {
+  return Array.from(new Set(state.invoices.map(invoiceMonthKey).filter(Boolean))).sort((a, b) =>
+    b.localeCompare(a),
+  );
+}
+
+function dashboardSalesTotals(invoices) {
+  return invoices.reduce(
+    (totals, invoice) => ({
+      count: totals.count + 1,
+      income: totals.income + Number(invoice.price || 0),
+      profit: totals.profit + invoiceProfit(invoice),
+    }),
+    { count: 0, income: 0, profit: 0 },
+  );
+}
+
+function furnitureStockCostTotal() {
+  return state.furniture.reduce((sum, item) => sum + Number(item.stock || 0) * furnitureTotal(item), 0);
+}
+
+function supplyStockUnits(item) {
+  return Number(item.packQty || 0) * Number(item.stock || 0);
+}
+
+function lowStockSupplies() {
+  return state.supplies
+    .map((item) => ({
+      item,
+      units: supplyStockUnits(item),
+    }))
+    .filter(({ units }) => units <= 0)
+    .sort((a, b) => a.units - b.units || sortSuppliesByName(a.item, b.item));
 }
 
 function orderLineFurniture(line) {
@@ -638,6 +730,13 @@ function matchesSupplySearch(item) {
   );
 }
 
+function sortSuppliesByName(a, b) {
+  return cleanText(a.name).localeCompare(cleanText(b.name), "es", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function matchesWoodSearch(item) {
   const query = elements.wood.search.value.trim().toLowerCase();
   if (!query) return true;
@@ -649,7 +748,7 @@ function matchesWoodSearch(item) {
 function matchesFurnitureSearch(item) {
   const query = elements.furniture.search.value.trim().toLowerCase();
   if (!query) return true;
-  return [item.name, item.notes].some((value) => String(value || "").toLowerCase().includes(query));
+  return [item.name, item.notes, furnitureDimensionsText(item)].some((value) => String(value || "").toLowerCase().includes(query));
 }
 
 function matchesInvoiceSearch(item) {
@@ -661,7 +760,7 @@ function matchesInvoiceSearch(item) {
 }
 
 function renderSupplies() {
-  const rows = state.supplies.filter(matchesSupplySearch);
+  const rows = state.supplies.filter(matchesSupplySearch).sort(sortSuppliesByName);
   elements.supplies.table.innerHTML = "";
   elements.supplies.count.textContent = `${rows.length} ítems`;
 
@@ -739,13 +838,15 @@ function renderFurnitureBuilder() {
 }
 
 function furnitureSupplyLineTemplate(line, index) {
+  const selectedLabel = supplySearchLabelById(line.supplyId);
+
   return `
     <div class="line-row" data-kind="supply" data-index="${index}">
-      <label>
+      <label class="line-picker">
         <span>Insumo</span>
-        <select data-field="supplyId">
-          ${supplyOptions(line.supplyId)}
-        </select>
+        <input class="line-search" data-field="supplyFilter" type="search" value="${escapeHtml(selectedLabel)}" placeholder="Buscar insumo" autocomplete="off" />
+        <input data-field="supplyId" type="hidden" value="${escapeHtml(line.supplyId || "")}" />
+        <div class="line-dropdown hidden" data-line-options="supply"></div>
       </label>
       <label>
         <span>Cantidad</span>
@@ -760,15 +861,16 @@ function furnitureSupplyLineTemplate(line, index) {
 function furnitureWoodLineTemplate(line, index) {
   const m2 = furnitureWoodLineM2(line);
   const cuts = Array.isArray(line.cuts) && line.cuts.length ? line.cuts : [createWoodCut()];
+  const selectedLabel = woodSearchLabelById(line.woodId);
 
   return `
     <div class="wood-line" data-kind="wood" data-index="${index}" data-legacy-qty="${Number(line.qty || 0)}">
       <div class="wood-line-header">
-        <label>
+        <label class="line-picker">
           <span>Madera</span>
-          <select data-field="woodId">
-            ${woodOptions(line.woodId)}
-          </select>
+          <input class="line-search" data-field="woodFilter" type="search" value="${escapeHtml(selectedLabel)}" placeholder="Buscar madera" autocomplete="off" />
+          <input data-field="woodId" type="hidden" value="${escapeHtml(line.woodId || "")}" />
+          <div class="line-dropdown hidden" data-line-options="wood"></div>
         </label>
         <div class="line-subtotal" data-subtotal>
           ${formatCurrency.format(furnitureWoodLineCost(line))}
@@ -805,24 +907,125 @@ function furnitureWoodCutTemplate(cut, woodIndex, cutIndex) {
   `;
 }
 
-function supplyOptions(selectedId) {
+function matchesSupplyOptionSearch(item, query) {
+  if (!query) return true;
+  return [supplySearchLabel(item), item.name, item.category, item.supplier, supplyUnit(item)].some((value) =>
+    String(value || "").toLowerCase().includes(query),
+  );
+}
+
+function supplyOptions(selectedId, query = "") {
+  const cleanQuery = cleanText(query).toLowerCase();
   const options = [`<option value="">Elegí insumo</option>`];
-  state.supplies.forEach((item) => {
-    const selected = item.id === selectedId ? " selected" : "";
-    const label = `${item.name} - ${formatCurrency.format(supplyUnitPrice(item))} / ${supplyUnit(item)}`;
-    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
-  });
+  state.supplies
+    .filter((item) => item.id === selectedId || matchesSupplyOptionSearch(item, cleanQuery))
+    .sort(sortSuppliesByName)
+    .forEach((item) => {
+      const selected = item.id === selectedId ? " selected" : "";
+      const label = supplySearchLabel(item);
+      options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+    });
   return options.join("");
 }
 
-function woodOptions(selectedId) {
-  const options = [`<option value="">Elegí madera</option>`];
-  state.wood.forEach((item) => {
-    const selected = item.id === selectedId ? " selected" : "";
-    const label = `${item.type} ${item.thickness} mm ${item.color} - ${formatCurrency.format(woodUsefulM2Cost(item))} / m2`;
-    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+function supplyOptionButtons(selectedId, query = "") {
+  const cleanQuery = cleanText(query).toLowerCase();
+  const rows = state.supplies.filter((item) => matchesSupplyOptionSearch(item, cleanQuery)).sort(sortSuppliesByName);
+
+  if (!rows.length) return `<div class="line-dropdown-empty">Sin resultados.</div>`;
+
+  return rows
+    .map((item) => {
+      const active = item.id === selectedId ? " is-selected" : "";
+      return `<button class="line-option${active}" type="button" data-select-line-option="supply" data-value="${escapeHtml(item.id)}">${escapeHtml(supplySearchLabel(item))}</button>`;
+    })
+    .join("");
+}
+
+function supplySearchLabel(item) {
+  const detail = [item.category || "General", item.supplier].filter(Boolean).join(" - ");
+  return `${item.name}${detail ? ` (${detail})` : ""} - ${formatCurrency.format(supplyUnitPrice(item))} / ${supplyUnit(item)}`;
+}
+
+function supplySearchLabelById(id) {
+  const item = state.supplies.find((entry) => entry.id === id);
+  return item ? supplySearchLabel(item) : "";
+}
+
+function supplyIdBySearchLabel(label) {
+  const cleanLabel = cleanText(label);
+  return state.supplies.find((item) => supplySearchLabel(item) === cleanLabel)?.id || "";
+}
+
+function supplySearchOptions() {
+  return [...state.supplies]
+    .sort(sortSuppliesByName)
+    .map((item) => `<option value="${escapeHtml(supplySearchLabel(item))}"></option>`)
+    .join("");
+}
+
+function matchesWoodOptionSearch(item, query) {
+  if (!query) return true;
+  return [woodSearchLabel(item), item.type, item.color, item.supplier, item.thickness].some((value) =>
+    String(value || "").toLowerCase().includes(query),
+  );
+}
+
+function sortWoodByDescription(a, b) {
+  return cleanText(`${a.type} ${a.thickness} ${a.color}`).localeCompare(cleanText(`${b.type} ${b.thickness} ${b.color}`), "es", {
+    numeric: true,
+    sensitivity: "base",
   });
+}
+
+function woodOptions(selectedId, query = "") {
+  const cleanQuery = cleanText(query).toLowerCase();
+  const options = [`<option value="">Elegí madera</option>`];
+  state.wood
+    .filter((item) => item.id === selectedId || matchesWoodOptionSearch(item, cleanQuery))
+    .sort(sortWoodByDescription)
+    .forEach((item) => {
+    const selected = item.id === selectedId ? " selected" : "";
+    const label = woodSearchLabel(item);
+    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+    });
   return options.join("");
+}
+
+function woodOptionButtons(selectedId, query = "") {
+  const cleanQuery = cleanText(query).toLowerCase();
+  const rows = state.wood.filter((item) => matchesWoodOptionSearch(item, cleanQuery)).sort(sortWoodByDescription);
+
+  if (!rows.length) return `<div class="line-dropdown-empty">Sin resultados.</div>`;
+
+  return rows
+    .map((item) => {
+      const active = item.id === selectedId ? " is-selected" : "";
+      return `<button class="line-option${active}" type="button" data-select-line-option="wood" data-value="${escapeHtml(item.id)}">${escapeHtml(woodSearchLabel(item))}</button>`;
+    })
+    .join("");
+}
+
+function woodSearchLabel(item) {
+  const detail = [item.color, item.supplier].filter(Boolean).join(" - ");
+  return `${item.type} ${item.thickness} mm${detail ? ` (${detail})` : ""} - ${formatCurrency.format(woodUsefulM2Cost(item))} / m2`;
+}
+
+function woodSearchLabelById(id) {
+  const item = state.wood.find((entry) => entry.id === id);
+  return item ? woodSearchLabel(item) : "";
+}
+
+function woodIdBySearchLabel(label) {
+  const cleanLabel = cleanText(label);
+  return state.wood.find((item) => woodSearchLabel(item) === cleanLabel)?.id || "";
+}
+
+function woodSearchOptions() {
+  return [...state.wood]
+    .sort(sortWoodByDescription)
+    .map((item) => `<option value="${escapeHtml(woodSearchLabel(item))}"></option>`)
+    .join("");
 }
 
 function renderFurniture() {
@@ -841,6 +1044,7 @@ function renderFurniture() {
     card.dataset.viewFurniture = item.id;
     const supplyCount = (item.supplies || []).filter((line) => line.supplyId && line.qty > 0).length;
     const woodM2 = furnitureWoodM2Total(item);
+    const dimensions = furnitureDimensionsText(item);
     card.innerHTML = `
       <div class="furniture-card-media">
         ${item.photo ? `<img src="${escapeHtml(item.photo)}" alt="${escapeHtml(item.name)}" />` : `<span>${escapeHtml(furnitureInitials(item.name))}</span>`}
@@ -849,6 +1053,7 @@ function renderFurniture() {
         <div>
           <h4>${escapeHtml(item.name)}</h4>
           <p>${escapeHtml(item.notes || "Sin detalle")}</p>
+          ${dimensions ? `<p>${escapeHtml(dimensions)}</p>` : ""}
         </div>
         <div class="furniture-card-stats">
           <span>Insumos <strong>${formatNumber.format(supplyCount)}</strong></span>
@@ -868,10 +1073,10 @@ function renderFurniture() {
 function renderInvoices() {
   const rows = state.invoices.filter(matchesInvoiceSearch);
   elements.invoices.table.innerHTML = "";
-  elements.invoices.count.textContent = `${rows.length} facturas`;
+  elements.invoices.count.textContent = `${rows.length} ventas`;
 
   if (!rows.length) {
-    elements.invoices.table.innerHTML = `<div class="empty-state">Sin facturas cargadas.</div>`;
+    elements.invoices.table.innerHTML = `<div class="empty-state">Sin ventas cargadas.</div>`;
     return;
   }
 
@@ -902,23 +1107,176 @@ function renderInvoices() {
 }
 
 function renderDashboard() {
-  const suppliesValue = state.supplies.reduce((sum, item) => sum + supplyStockValue(item), 0);
-  const woodValue = state.wood.reduce((sum, item) => sum + woodUsedCost(item), 0);
-  const woodArea = state.wood.reduce((sum, item) => sum + item.used, 0);
-  const averageUnit = state.supplies.length
-    ? state.supplies.reduce((sum, item) => sum + supplyUnitPrice(item), 0) / state.supplies.length
-    : 0;
-  const thicknessCount = new Set(state.wood.map((item) => Number(item.thickness))).size;
+  const currentPeriod = elements.metrics.period.value || "all";
+  const monthKeys = dashboardMonthKeys();
+  const availablePeriods = new Set(["all", ...monthKeys]);
+  const selectedPeriod = availablePeriods.has(currentPeriod) ? currentPeriod : "all";
+  const periodOptions = [
+    `<option value="all">Acumulado</option>`,
+    ...monthKeys.map((key) => `<option value="${key}">${escapeHtml(monthLabel(key))}</option>`),
+  ];
+  elements.metrics.period.innerHTML = periodOptions.join("");
+  elements.metrics.period.value = selectedPeriod;
 
-  elements.metrics.suppliesCount.textContent = formatNumber.format(state.supplies.length);
-  elements.metrics.suppliesValue.textContent = formatCurrency.format(suppliesValue);
-  elements.metrics.woodArea.textContent = `${formatNumber.format(woodArea)} m2`;
-  elements.metrics.woodValue.textContent = `${formatCurrency.format(woodValue)} usados`;
-  elements.metrics.averageUnit.textContent = formatCurrency.format(averageUnit);
-  elements.metrics.thicknessCount.textContent = formatNumber.format(thicknessCount);
+  const periodInvoices =
+    selectedPeriod === "all" ? state.invoices : state.invoices.filter((invoice) => invoiceMonthKey(invoice) === selectedPeriod);
+  const periodTotals = dashboardSalesTotals(periodInvoices);
+  const accumulatedTotals = dashboardSalesTotals(state.invoices);
+  const stockCost = furnitureStockCostTotal();
+  const lowSupplies = lowStockSupplies();
+  const periodLabel = selectedPeriod === "all" ? "Acumulado" : monthLabel(selectedPeriod);
 
-  renderLatestSupplies();
-  renderWoodByThickness();
+  elements.metrics.salesCount.textContent = formatNumber.format(periodTotals.count);
+  elements.metrics.salesPeriod.textContent = periodLabel;
+  elements.metrics.salesIncome.textContent = formatCurrency.format(periodTotals.income);
+  elements.metrics.salesProfit.textContent = formatCurrency.format(periodTotals.profit);
+  elements.metrics.furnitureStockCost.textContent = formatCurrency.format(stockCost);
+  elements.metrics.lowSupplyCount.textContent = formatNumber.format(lowSupplies.length);
+  elements.metrics.accumulatedPeriod.textContent = "Total histórico";
+  elements.metrics.accumulatedSales.textContent = formatNumber.format(accumulatedTotals.count);
+  elements.metrics.accumulatedIncome.textContent = formatCurrency.format(accumulatedTotals.income);
+  elements.metrics.accumulatedProfit.textContent = formatCurrency.format(accumulatedTotals.profit);
+  elements.metrics.accumulatedStockCost.textContent = formatCurrency.format(stockCost);
+
+  renderLowStockSupplies(lowSupplies);
+}
+
+function renderLowStockSupplies(rows = lowStockSupplies()) {
+  elements.metrics.lowStockList.innerHTML = "";
+  elements.metrics.lowStockCountLabel.textContent = `${rows.length} ítems`;
+
+  if (!rows.length) {
+    elements.metrics.lowStockList.innerHTML = `<div class="empty-state">Sin insumos sin stock.</div>`;
+    return;
+  }
+
+  rows.forEach(({ item, units }) => {
+    const row = document.createElement("div");
+    row.className = `compact-item${units <= 0 ? " stock-empty" : ""}`;
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(item.category || "General")}</small>
+      </div>
+      <span>${formatNumber.format(units)} ${escapeHtml(supplyUnit(item))}</span>
+    `;
+    elements.metrics.lowStockList.appendChild(row);
+  });
+}
+
+function renderStock() {
+  renderStockSupplies();
+  renderStockWood();
+  renderStockFurniture();
+  updateStockPanelVisibility();
+}
+
+function renderStockSupplies() {
+  const query = cleanText(elements.stock.supplySearch.value).toLowerCase();
+  const rows = state.supplies
+    .filter((item) =>
+      [item.name, item.category, item.supplier, supplyUnit(item)].some((value) =>
+        String(value || "").toLowerCase().includes(query),
+      ),
+    )
+    .sort(sortSuppliesByName);
+  elements.stock.supplyList.innerHTML = "";
+  elements.stock.supplyLabel.textContent = `${rows.length} ítems`;
+
+  if (!rows.length) {
+    elements.stock.supplyList.innerHTML = `<div class="empty-state">${state.supplies.length ? "Sin resultados." : "Sin insumos cargados."}</div>`;
+    return;
+  }
+
+  rows.forEach((item) => {
+    const unit = supplyUnit(item);
+    const stockUnits = Number(item.packQty || 0) * Number(item.stock || 0);
+    const card = document.createElement("article");
+    card.className = `stock-item${stockUnits <= 0 ? " stock-empty" : ""}`;
+    card.innerHTML = `
+      <div class="stock-description">
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(item.category || "General")}</small>
+      </div>
+      <label class="stock-edit">
+        <input data-stock-supply="${escapeHtml(item.id)}" type="number" min="0" step="0.01" value="${Number(stockUnits || 0)}" />
+        <span>${escapeHtml(unit)}</span>
+      </label>
+    `;
+    elements.stock.supplyList.appendChild(card);
+  });
+}
+
+function renderStockWood() {
+  const query = cleanText(elements.stock.woodSearch.value).toLowerCase();
+  const rows = state.wood.filter((item) =>
+    [item.type, item.color, item.supplier, item.thickness].some((value) =>
+      String(value || "").toLowerCase().includes(query),
+    ),
+  );
+  elements.stock.woodList.innerHTML = "";
+  elements.stock.woodLabel.textContent = `${rows.length} lotes`;
+
+  if (!rows.length) {
+    elements.stock.woodList.innerHTML = `<div class="empty-state">${state.wood.length ? "Sin resultados." : "Sin madera cargada."}</div>`;
+    return;
+  }
+
+  rows.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = `stock-item${Number(item.used || 0) <= 0 ? " stock-empty" : ""}`;
+    card.innerHTML = `
+      <div class="stock-description">
+        <strong>${escapeHtml(item.type)} ${formatNumber.format(item.thickness)} mm</strong>
+        <small>${escapeHtml(item.color)}</small>
+      </div>
+      <label class="stock-edit">
+        <input data-stock-wood="${escapeHtml(item.id)}" type="number" min="0" max="${Number(item.area || 0)}" step="0.01" value="${Number(item.used || 0)}" />
+        <span>m2</span>
+      </label>
+    `;
+    elements.stock.woodList.appendChild(card);
+  });
+}
+
+function renderStockFurniture() {
+  const query = cleanText(elements.stock.furnitureSearch.value).toLowerCase();
+  const rows = state.furniture.filter((item) =>
+    [item.name, item.notes].some((value) => String(value || "").toLowerCase().includes(query)),
+  );
+  elements.stock.furnitureList.innerHTML = "";
+  elements.stock.furnitureLabel.textContent = `${rows.length} muebles`;
+
+  if (!rows.length) {
+    elements.stock.furnitureList.innerHTML = `<div class="empty-state">${state.furniture.length ? "Sin resultados." : "Sin muebles cargados."}</div>`;
+    return;
+  }
+
+  rows.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = `stock-item${Number(item.stock || 0) <= 0 ? " stock-empty" : ""}`;
+    card.innerHTML = `
+      <div class="stock-description">
+        <strong>${escapeHtml(item.name)}</strong>
+        <small>${escapeHtml(item.notes || "Sin detalle")}</small>
+      </div>
+      <label class="stock-edit">
+        <input data-stock-furniture="${escapeHtml(item.id)}" type="number" min="0" step="1" value="${Number(item.stock || 0)}" />
+        <span>un.</span>
+      </label>
+    `;
+    elements.stock.furnitureList.appendChild(card);
+  });
+}
+
+function updateStockPanelVisibility() {
+  if (elements.stock.mobileSelect.value !== activeStockPanel) {
+    elements.stock.mobileSelect.value = activeStockPanel;
+  }
+
+  elements.stock.panels.forEach((panel) => {
+    panel.classList.toggle("stock-panel-active", panel.dataset.stockPanel === activeStockPanel);
+  });
 }
 
 function renderLatestSupplies() {
@@ -987,6 +1345,7 @@ function renderAll() {
   renderInvoiceFurnitureOptions();
   renderOrders();
   updateInvoiceSummary();
+  renderStock();
   renderDashboard();
 }
 
@@ -1123,12 +1482,13 @@ async function initFirebaseSync() {
   const firebaseConfig = getFirebaseConfig();
 
   if (!hasFirebaseConfig(firebaseConfig)) {
-    document.body.classList.remove("auth-required");
+    setAuthScreen("none");
     updateSyncStatus("Guardado local", "local");
     return;
   }
 
   try {
+    setAuthScreen("loading");
     updateSyncStatus("Iniciar sesión", "saving");
     const firebaseModules = await importFirebaseModules();
     const app = firebaseModules.initializeApp(firebaseConfig);
@@ -1148,11 +1508,15 @@ async function initFirebaseSync() {
       },
       (error) => {
         console.error("Firebase auth error", error);
+        setAuthScreen("required");
+        elements.auth.message.textContent = "No se pudo verificar la sesión.";
         updateSyncStatus("Error de acceso", "error");
       },
     );
   } catch (error) {
     console.error("Firebase init error", error);
+    setAuthScreen("required");
+    elements.auth.message.textContent = "No se pudo conectar con Firebase.";
     updateSyncStatus("Firebase sin conexión", "error");
   }
 }
@@ -1168,14 +1532,14 @@ function stopCloudListeners() {
 function handleSignedOut() {
   cloudSync.user = null;
   stopCloudListeners();
-  document.body.classList.add("auth-required");
+  setAuthScreen("required");
   elements.logout.classList.add("hidden");
   updateSyncStatus("Iniciar sesión", "saving");
 }
 
 function handleSignedIn(user) {
   cloudSync.user = user;
-  document.body.classList.remove("auth-required");
+  setAuthScreen("none");
   elements.logout.classList.remove("hidden");
   updateSyncStatus("Conectando Firebase", "saving");
   startCloudListeners();
@@ -1213,6 +1577,7 @@ function handleCloudSnapshot(collectionName, snapshot) {
     wood: cloudSync.snapshots.wood,
     furniture: cloudSync.snapshots.furniture,
     invoices: cloudSync.snapshots.invoices,
+    orders: cloudSync.snapshots.orders,
   });
 
   if (!cloudSync.ready) {
@@ -1246,12 +1611,13 @@ function scheduleCloudSave() {
 async function syncCollectionToCloud(collectionName) {
   const { doc, getDocs, writeBatch } = cloudSync.modules;
   const collectionRef = cloudSync.refs[collectionName];
+  const localItems = Array.isArray(state[collectionName]) ? state[collectionName] : [];
   const snapshot = await getDocs(collectionRef);
-  const localIds = new Set(state[collectionName].map((item) => item.id).filter(Boolean));
+  const localIds = new Set(localItems.map((item) => item.id).filter(Boolean));
   const batch = writeBatch(cloudSync.db);
   let operations = 0;
 
-  state[collectionName].forEach((item) => {
+  localItems.forEach((item) => {
     if (!item.id) return;
     batch.set(doc(collectionRef, item.id), toCloudItem(item));
     operations += 1;
@@ -1359,15 +1725,17 @@ function syncFurnitureDraftFromDom() {
       qty: Number(row.querySelector('[data-field="qty"]')?.value) || 0,
     }),
   );
-  furnitureDraft.wood = Array.from(elements.furniture.woodLines.querySelectorAll(".wood-line")).map((row) => ({
-    woodId: row.querySelector('[data-field="woodId"]')?.value || "",
-    qty: Number(row.dataset.legacyQty || 0),
-    cuts: Array.from(row.querySelectorAll(".cut-row")).map((cutRow) => ({
-      lengthMm: Number(cutRow.querySelector('[data-field="lengthMm"]')?.value) || 0,
-      widthMm: Number(cutRow.querySelector('[data-field="widthMm"]')?.value) || 0,
-      qty: Number(cutRow.querySelector('[data-field="cutQty"]')?.value) || 0,
-    })),
-  }));
+  furnitureDraft.wood = Array.from(elements.furniture.woodLines.querySelectorAll(".wood-line")).map((row) => {
+    return {
+      woodId: row.querySelector('[data-field="woodId"]')?.value || "",
+      qty: Number(row.dataset.legacyQty || 0),
+      cuts: Array.from(row.querySelectorAll(".cut-row")).map((cutRow) => ({
+        lengthMm: Number(cutRow.querySelector('[data-field="lengthMm"]')?.value) || 0,
+        widthMm: Number(cutRow.querySelector('[data-field="widthMm"]')?.value) || 0,
+        qty: Number(cutRow.querySelector('[data-field="cutQty"]')?.value) || 0,
+      })),
+    };
+  });
   furnitureDraft = normalizeFurnitureDraft(furnitureDraft);
 }
 
@@ -1406,7 +1774,74 @@ function updateFurnitureTotal() {
       : "Sin ítems seleccionados";
 }
 
-function handleFurnitureLineChange() {
+function filterFurnitureSupplyOptions(input) {
+  const row = input.closest(".line-row");
+  const hiddenInput = row?.querySelector('[data-field="supplyId"]');
+  const dropdown = row?.querySelector('[data-line-options="supply"]');
+  if (!hiddenInput || !dropdown) return;
+
+  if (input.value !== supplySearchLabelById(hiddenInput.value)) {
+    hiddenInput.value = "";
+  }
+
+  dropdown.innerHTML = supplyOptionButtons(hiddenInput.value, input.value);
+  dropdown.classList.remove("hidden");
+  syncFurnitureDraftFromDom();
+  updateFurnitureTotal();
+}
+
+function filterFurnitureWoodOptions(input) {
+  const row = input.closest(".wood-line");
+  const hiddenInput = row?.querySelector('[data-field="woodId"]');
+  const dropdown = row?.querySelector('[data-line-options="wood"]');
+  if (!hiddenInput || !dropdown) return;
+
+  if (input.value !== woodSearchLabelById(hiddenInput.value)) {
+    hiddenInput.value = "";
+  }
+
+  dropdown.innerHTML = woodOptionButtons(hiddenInput.value, input.value);
+  dropdown.classList.remove("hidden");
+  syncFurnitureDraftFromDom();
+  updateFurnitureTotal();
+}
+
+function selectFurnitureLineOption(button) {
+  const kind = button.dataset.selectLineOption;
+  const id = button.dataset.value || "";
+  const picker = button.closest(".line-picker");
+  if (!picker) return;
+
+  const input = picker.querySelector(kind === "supply" ? '[data-field="supplyFilter"]' : '[data-field="woodFilter"]');
+  const hiddenInput = picker.querySelector(kind === "supply" ? '[data-field="supplyId"]' : '[data-field="woodId"]');
+  const dropdown = picker.querySelector("[data-line-options]");
+  const label = kind === "supply" ? supplySearchLabelById(id) : woodSearchLabelById(id);
+
+  if (input) input.value = label;
+  if (hiddenInput) hiddenInput.value = id;
+  if (dropdown) dropdown.classList.add("hidden");
+
+  syncFurnitureDraftFromDom();
+  updateFurnitureTotal();
+}
+
+function closeLineDropdowns() {
+  $$(".line-dropdown").forEach((dropdown) => dropdown.classList.add("hidden"));
+}
+
+function handleFurnitureLineChange(event) {
+  const field = event?.target?.dataset?.field;
+
+  if (field === "supplyFilter") {
+    filterFurnitureSupplyOptions(event.target);
+    return;
+  }
+
+  if (field === "woodFilter") {
+    filterFurnitureWoodOptions(event.target);
+    return;
+  }
+
   syncFurnitureDraftFromDom();
   updateFurnitureTotal();
 }
@@ -1670,6 +2105,118 @@ function handleInvoiceChange() {
   updateInvoiceSummary();
 }
 
+function handleStockPanelChange() {
+  activeStockPanel = elements.stock.mobileSelect.value || "supplies";
+  updateStockPanelVisibility();
+}
+
+function handleStockChange(event) {
+  const input = event.target.closest("input");
+  if (!input) return;
+
+  if (input.dataset.stockSupply) {
+    const item = state.supplies.find((entry) => entry.id === input.dataset.stockSupply);
+    if (!item) return;
+    const unit = supplyUnit(item);
+    const current = Number(item.packQty || 0) * Number(item.stock || 0);
+    const next = Math.max(0, readNumber(input));
+    requestStockUpdate({
+      input,
+      title: "Editar stock de insumo",
+      description: item.name,
+      current,
+      next,
+      unit,
+      onConfirm: () => updateSupplyStock(item.id, next),
+    });
+    return;
+  }
+
+  if (input.dataset.stockWood) {
+    const item = state.wood.find((entry) => entry.id === input.dataset.stockWood);
+    if (!item) return;
+    const current = Number(item.used || 0);
+    const next = Math.min(Math.max(0, readNumber(input)), Number(item.area || 0));
+    requestStockUpdate({
+      input,
+      title: "Editar stock de madera",
+      description: `${item.type} ${item.thickness} mm ${item.color}`,
+      current,
+      next,
+      unit: "m2",
+      onConfirm: () => updateWoodStock(item.id, next),
+    });
+    return;
+  }
+
+  if (input.dataset.stockFurniture) {
+    const item = state.furniture.find((entry) => entry.id === input.dataset.stockFurniture);
+    if (!item) return;
+    const current = Number(item.stock || 0);
+    const next = Math.max(0, Math.floor(readNumber(input)));
+    requestStockUpdate({
+      input,
+      title: "Editar stock de mueble",
+      description: item.name,
+      current,
+      next,
+      unit: "un.",
+      onConfirm: () => updateFurnitureStock(item.id, next),
+    });
+  }
+}
+
+function requestStockUpdate({ input, title, description, current, next, unit, onConfirm }) {
+  const currentValue = Number(current || 0);
+  const nextValue = Number(next || 0);
+  input.value = String(currentValue);
+
+  if (Math.abs(currentValue - nextValue) < 0.0001) return;
+
+  confirmWithModal({
+    title,
+    body: `¿Querés cambiar el stock de "${description}" de ${formatNumber.format(currentValue)} ${unit} a ${formatNumber.format(nextValue)} ${unit}?`,
+    confirmLabel: "Sí, editar",
+    onConfirm,
+  });
+}
+
+function updateSupplyStock(id, stockUnits) {
+  state.supplies = state.supplies.map((item) => {
+    if (item.id !== id) return item;
+    const packQty = Number(item.packQty || 0);
+    return {
+      ...item,
+      stock: packQty > 0 ? stockUnits / packQty : 0,
+    };
+  });
+  saveAndRefresh();
+}
+
+function updateWoodStock(id, usedM2) {
+  state.wood = state.wood.map((item) => {
+    if (item.id !== id) return item;
+    const area = Number(item.area || 0);
+    return {
+      ...item,
+      used: area > 0 ? Math.min(usedM2, area) : usedM2,
+    };
+  });
+  saveAndRefresh();
+}
+
+function updateFurnitureStock(id, stockQty) {
+  state.furniture = state.furniture.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          stock: stockQty,
+        }
+      : item,
+  );
+  saveAndRefresh();
+}
+
 function updateFurniturePhotoPreview() {
   if (currentFurniturePhoto) {
     elements.furniture.photoImage.src = currentFurniturePhoto;
@@ -1768,6 +2315,7 @@ function showFurnitureDetail(id) {
   const wood = (item.wood || []).filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
   const supplyTotal = furnitureSupplyTotal(item);
   const woodTotal = furnitureWoodTotal(item);
+  const dimensions = furnitureDimensionsText(item);
 
   openModal({
     eyebrow: "Detalle de mueble",
@@ -1789,6 +2337,14 @@ function showFurnitureDetail(id) {
         </div>
       </div>
       ${item.notes ? `<p class="confirm-copy">${escapeHtml(item.notes)}</p>` : ""}
+      ${
+        dimensions
+          ? `<div class="detail-section">
+              <h3>Medidas</h3>
+              <div class="detail-row"><strong>Largo / ancho / alto</strong><span>${escapeHtml(dimensions)}</span></div>
+            </div>`
+          : ""
+      }
       <div class="detail-section">
         <h3>Insumos</h3>
         ${detailSupplyRows(supplies)}
@@ -1806,7 +2362,7 @@ function showInvoiceDetail(id) {
   if (!item) return;
 
   openModal({
-    eyebrow: "Detalle de factura",
+    eyebrow: "Detalle de venta",
     title: item.client,
     body: `
       <div class="detail-summary">
@@ -1815,7 +2371,7 @@ function showInvoiceDetail(id) {
           <strong>${escapeHtml(furnitureNameById(item.furnitureId))}</strong>
         </div>
         <div class="detail-metric">
-          <span>Total factura</span>
+          <span>Total venta</span>
           <strong>${formatCurrency.format(invoiceTotal(item))}</strong>
         </div>
         <div class="detail-metric">
@@ -1824,14 +2380,14 @@ function showInvoiceDetail(id) {
         </div>
       </div>
       <div class="detail-actions">
-        <button class="primary-button" type="button" data-print-invoice="${item.id}">Generar PDF</button>
+        <button class="primary-button" type="button" data-print-invoice="${item.id}">Generar comprobante</button>
       </div>
       <div class="detail-section">
         <h3>Datos</h3>
         <div class="detail-row"><strong>Fecha</strong><span>${escapeHtml(item.date || "-")}</span></div>
         <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
         <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
-        <div class="detail-row"><strong>Precio en factura</strong><span>${formatCurrency.format(Number(item.price || 0))}</span></div>
+        <div class="detail-row"><strong>Precio de venta</strong><span>${formatCurrency.format(Number(item.price || 0))}</span></div>
         <div class="detail-row"><strong>Costo mueble</strong><span>${formatCurrency.format(invoiceFurnitureCost(item))}</span></div>
         <div class="detail-row"><strong>Envío</strong><span>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</span></div>
         ${item.shippingRequired ? `<div class="detail-row"><strong>Ubicación</strong><span>${escapeHtml(item.location || "-")}</span></div>` : ""}
@@ -1856,7 +2412,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Factura ${escapeHtml(invoiceNumber(invoice))} - Muebles DiLucca</title>
+    <title>Venta ${escapeHtml(invoiceNumber(invoice))} - Muebles DiLucca</title>
     <style>
       @page {
         size: A4;
@@ -2059,7 +2615,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <img src="${escapeHtml(logoUrl)}" alt="Muebles DiLucca" />
         </div>
         <div class="invoice-heading">
-          <h1>Factura</h1>
+          <h1>Comprobante de venta</h1>
           <p>Nro. ${escapeHtml(invoiceNumber(invoice))}</p>
           <p>Fecha ${escapeHtml(formatInvoiceDate(invoice.date))}</p>
         </div>
@@ -2305,11 +2861,16 @@ function handleFurnitureSubmit(event) {
   }
 
   const id = elements.furniture.id.value;
+  const existingFurniture = id ? state.furniture.find((item) => item.id === id) : null;
   const payload = {
     id: id || createId("furniture"),
     name: cleanText(elements.furniture.name.value),
     notes: cleanText(elements.furniture.notes.value),
+    lengthMm: readNumber(elements.furniture.length),
+    widthMm: readNumber(elements.furniture.width),
+    heightMm: readNumber(elements.furniture.height),
     photo: currentFurniturePhoto,
+    stock: Number(existingFurniture?.stock || 0),
     supplies,
     wood,
     createdAt: id ? getExistingCreatedAt(state.furniture, id) : new Date().toISOString(),
@@ -2405,6 +2966,9 @@ function editFurniture(id) {
   elements.furniture.id.value = item.id;
   elements.furniture.name.value = item.name;
   elements.furniture.notes.value = item.notes || "";
+  elements.furniture.length.value = item.lengthMm || "";
+  elements.furniture.width.value = item.widthMm || "";
+  elements.furniture.height.value = item.heightMm || "";
   currentFurniturePhoto = item.photo || "";
   updateFurniturePhotoPreview();
   furnitureDraft = normalizeFurnitureDraft({
@@ -2455,8 +3019,8 @@ function requestEditInvoice(id) {
   const item = state.invoices.find((entry) => entry.id === id);
   if (!item) return;
   confirmWithModal({
-    title: "Editar factura",
-    body: `¿Querés editar la factura de "${item.client}"? Se cargará en el formulario para modificarla.`,
+    title: "Editar venta",
+    body: `¿Querés editar la venta de "${item.client}"? Se cargará en el formulario para modificarla.`,
     confirmLabel: "Sí, editar",
     onConfirm: () => editInvoice(id),
   });
@@ -2531,8 +3095,8 @@ function requestDeleteInvoice(id) {
   const item = state.invoices.find((entry) => entry.id === id);
   if (!item) return;
   confirmWithModal({
-    title: "Borrar factura",
-    body: `¿Seguro que querés borrar la factura de "${item.client}"? Esta acción no se puede deshacer.`,
+    title: "Borrar venta",
+    body: `¿Seguro que querés borrar la venta de "${item.client}"? Esta acción no se puede deshacer.`,
     confirmLabel: "Sí, borrar",
     onConfirm: () => deleteInvoice(id),
   });
@@ -2572,7 +3136,7 @@ function resetInvoiceForm() {
   elements.invoices.date.value = todayValue();
   elements.invoices.shippingRequired.value = "no";
   elements.invoices.shippingPrice.value = 0;
-  elements.invoices.submit.textContent = "Guardar factura";
+  elements.invoices.submit.textContent = "Guardar venta";
   elements.invoices.cancel.classList.add("hidden");
   renderInvoiceFurnitureOptions();
   updateInvoiceSummary();
@@ -2615,7 +3179,7 @@ function openInvoiceComposer() {
 function closeInvoiceComposer() {
   elements.invoices.form.classList.add("hidden");
   elements.invoices.builder.classList.add("hidden");
-  elements.invoices.showForm.textContent = "Agregar factura";
+  elements.invoices.showForm.textContent = "Agregar venta";
 }
 
 function toggleInvoiceComposer() {
@@ -2769,10 +3333,28 @@ function handleModalBodyClick(event) {
 }
 
 function handleFurnitureLineClick(event) {
+  const lineOptionButton = event.target.closest("[data-select-line-option]");
+  const supplyFilter = event.target.closest('[data-field="supplyFilter"]');
+  const woodFilter = event.target.closest('[data-field="woodFilter"]');
   const removeSupplyButton = event.target.closest("[data-remove-furniture-supply]");
   const removeWoodButton = event.target.closest("[data-remove-furniture-wood]");
   const addWoodCutButton = event.target.closest("[data-add-wood-cut]");
   const removeWoodCutButton = event.target.closest("[data-remove-wood-cut]");
+
+  if (lineOptionButton) {
+    selectFurnitureLineOption(lineOptionButton);
+    return;
+  }
+
+  if (supplyFilter) {
+    filterFurnitureSupplyOptions(supplyFilter);
+    return;
+  }
+
+  if (woodFilter) {
+    filterFurnitureWoodOptions(woodFilter);
+    return;
+  }
 
   if (removeSupplyButton) {
     removeFurnitureLine("supplies", Number(removeSupplyButton.dataset.removeFurnitureSupply));
@@ -2793,6 +3375,11 @@ function handleFurnitureLineClick(event) {
     const [woodIndex, cutIndex] = removeWoodCutButton.dataset.removeWoodCut.split(":").map(Number);
     removeFurnitureWoodCut(woodIndex, cutIndex);
   }
+}
+
+function handleDocumentClick(event) {
+  if (event.target.closest(".line-picker")) return;
+  closeLineDropdowns();
 }
 
 function handleOrderTableClick(event) {
@@ -2835,13 +3422,11 @@ function bindEvents() {
   elements.supplies.form.addEventListener("submit", handleSupplySubmit);
   elements.supplies.cancel.addEventListener("click", resetSupplyForm);
   elements.supplies.search.addEventListener("input", renderSupplies);
-  elements.supplies.clear.addEventListener("click", () => clearCollection("supplies", "insumos"));
   elements.supplies.table.addEventListener("click", handleTableClick);
 
   elements.wood.form.addEventListener("submit", handleWoodSubmit);
   elements.wood.cancel.addEventListener("click", resetWoodForm);
   elements.wood.search.addEventListener("input", renderWood);
-  elements.wood.clear.addEventListener("click", () => clearCollection("wood", "madera"));
   elements.wood.table.addEventListener("click", handleTableClick);
 
   elements.furniture.form.addEventListener("submit", handleFurnitureSubmit);
@@ -2853,7 +3438,6 @@ function bindEvents() {
   elements.furniture.removePhoto.addEventListener("click", removeFurniturePhoto);
   elements.furniture.showForm.addEventListener("click", toggleFurnitureComposer);
   elements.furniture.search.addEventListener("input", renderFurniture);
-  elements.furniture.clear.addEventListener("click", () => clearCollection("furniture", "muebles"));
   elements.furniture.table.addEventListener("click", handleTableClick);
   elements.furniture.addSupply.addEventListener("click", addFurnitureSupplyLine);
   elements.furniture.addWood.addEventListener("click", addFurnitureWoodLine);
@@ -2871,7 +3455,6 @@ function bindEvents() {
   });
   elements.invoices.showForm.addEventListener("click", toggleInvoiceComposer);
   elements.invoices.search.addEventListener("input", renderInvoices);
-  elements.invoices.clear.addEventListener("click", () => clearCollection("invoices", "facturas"));
   elements.invoices.table.addEventListener("click", handleTableClick);
   elements.invoices.furniture.addEventListener("change", handleInvoiceChange);
   elements.invoices.price.addEventListener("input", handleInvoiceChange);
@@ -2886,6 +3469,15 @@ function bindEvents() {
   elements.orders.table.addEventListener("click", handleOrderTableClick);
   elements.orders.savedTable.addEventListener("click", handleSavedOrderTableClick);
 
+  elements.stock.supplySearch.addEventListener("input", renderStockSupplies);
+  elements.stock.woodSearch.addEventListener("input", renderStockWood);
+  elements.stock.furnitureSearch.addEventListener("input", renderStockFurniture);
+  elements.stock.mobileSelect.addEventListener("change", handleStockPanelChange);
+  elements.stock.supplyList.addEventListener("change", handleStockChange);
+  elements.stock.woodList.addEventListener("change", handleStockChange);
+  elements.stock.furnitureList.addEventListener("change", handleStockChange);
+  elements.metrics.period.addEventListener("change", renderDashboard);
+
   elements.modal.close.addEventListener("click", closeModal);
   elements.modal.body.addEventListener("click", handleModalBodyClick);
   elements.modal.cancel.addEventListener("click", closeModal);
@@ -2897,6 +3489,7 @@ function bindEvents() {
   elements.modal.root.addEventListener("click", (event) => {
     if (event.target === elements.modal.root) closeModal();
   });
+  document.addEventListener("click", handleDocumentClick);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !elements.modal.root.classList.contains("hidden")) closeModal();
   });
