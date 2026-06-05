@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestión de Mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260604-business-pdf" />
+    <link rel="stylesheet" href="styles.css?v=20260605-documents-multi-items" />
   </head>
   <body class="auth-loading">
     <div class="app-shell">
@@ -33,7 +33,10 @@
           <button class="nav-tab" type="button" data-view="wood">Madera</button>
           <button class="nav-tab" type="button" data-view="furniture">Muebles</button>
           <button class="nav-tab" type="button" data-view="invoices">Ventas</button>
+          <button class="nav-tab" type="button" data-view="quotes">Presupuestos</button>
           <button class="nav-tab" type="button" data-view="orders">Pedidos</button>
+          <button class="nav-tab" type="button" data-view="production">Producción</button>
+          <button class="nav-tab" type="button" data-view="tasks">Tareas</button>
         </nav>
 
         <button class="logout-button hidden" type="button" id="logout-button">Cerrar sesión</button>
@@ -352,6 +355,17 @@
               <input id="furniture-notes" type="text" placeholder="Opcional" />
             </label>
             <label>
+              <span>Tipo</span>
+              <select id="furniture-kind">
+                <option value="own">Fabricación propia</option>
+                <option value="thirdParty">Tercerizado / reventa</option>
+              </select>
+            </label>
+            <label>
+              <span>Costo compra</span>
+              <input id="furniture-third-party-cost" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
               <span>Largo mm</span>
               <input id="furniture-length" type="number" min="0" step="1" placeholder="Ej: 1800" />
             </label>
@@ -464,7 +478,11 @@
             <input type="hidden" id="invoice-id" />
             <label>
               <span>Mueble</span>
-              <select id="invoice-furniture" required></select>
+              <select id="invoice-furniture"></select>
+            </label>
+            <label>
+              <span>Cantidad</span>
+              <input id="invoice-qty" type="number" min="1" step="1" value="1" />
             </label>
             <label>
               <span>Cliente</span>
@@ -479,8 +497,8 @@
               <input id="invoice-date" type="date" />
             </label>
             <label>
-              <span>Precio de venta</span>
-              <input id="invoice-price" type="number" min="0" step="0.01" required />
+              <span>Precio unitario</span>
+              <input id="invoice-price" type="number" min="0" step="0.01" value="0" />
             </label>
             <label>
               <span>Seña recibida</span>
@@ -520,6 +538,13 @@
               <span>Notas</span>
               <input id="invoice-notes" type="text" placeholder="Opcional" />
             </label>
+            <div class="document-lines">
+              <div class="document-lines-title">
+                <span>Otros muebles</span>
+                <button class="secondary-button" type="button" id="add-invoice-item">Agregar mueble</button>
+              </div>
+              <div class="document-line-list" id="invoice-item-lines"></div>
+            </div>
             <div class="form-actions">
               <button class="primary-button" type="submit" id="invoice-submit">Guardar venta</button>
               <button class="secondary-button hidden" type="button" id="invoice-cancel">Cancelar</button>
@@ -565,6 +590,133 @@
               <span id="invoice-count-label">0 ventas</span>
             </div>
             <div class="invoice-grid" id="invoice-table"></div>
+          </section>
+        </section>
+
+        <section class="view" id="quotes" aria-labelledby="quotes-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Cotizaciones</p>
+              <h2 id="quotes-title">Presupuestos</h2>
+            </div>
+            <div class="toolbar">
+              <button class="primary-button" type="button" id="show-quote-form">Agregar presupuesto</button>
+              <input id="quote-search" type="search" placeholder="Buscar presupuesto" autocomplete="off" />
+            </div>
+          </div>
+
+          <form class="entry-form invoice-form hidden" id="quote-form" autocomplete="off">
+            <input type="hidden" id="quote-id" />
+            <label>
+              <span>Mueble cargado</span>
+              <select id="quote-furniture"></select>
+            </label>
+            <label>
+              <span>Cantidad</span>
+              <input id="quote-qty" type="number" min="1" step="1" value="1" />
+            </label>
+            <label>
+              <span>Mueble personalizado</span>
+              <input id="quote-custom-furniture" type="text" placeholder="Ej: placard a medida" />
+            </label>
+            <label>
+              <span>Costo estimado</span>
+              <input id="quote-custom-cost" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
+              <span>Cliente</span>
+              <input id="quote-client" type="text" required placeholder="Nombre del cliente" />
+            </label>
+            <label>
+              <span>Teléfono</span>
+              <input id="quote-phone" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Fecha</span>
+              <input id="quote-date" type="date" />
+            </label>
+            <label>
+              <span>Precio unitario</span>
+              <input id="quote-price" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
+              <span>Envío</span>
+              <select id="quote-shipping-required">
+                <option value="no">No</option>
+                <option value="yes">Sí</option>
+              </select>
+            </label>
+            <label>
+              <span>Precio envío</span>
+              <input id="quote-shipping-price" type="number" min="0" step="0.01" value="0" />
+            </label>
+            <label>
+              <span>Ubicación envío</span>
+              <input id="quote-location" type="text" placeholder="Dirección o zona" />
+            </label>
+            <label>
+              <span>Pago</span>
+              <select id="quote-payment">
+                <option value="Transferencia">Transferencia</option>
+                <option value="Efectivo">Efectivo</option>
+              </select>
+            </label>
+            <label>
+              <span>Notas</span>
+              <input id="quote-notes" type="text" placeholder="Opcional" />
+            </label>
+            <div class="document-lines">
+              <div class="document-lines-title">
+                <span>Otros muebles</span>
+                <button class="secondary-button" type="button" id="add-quote-item">Agregar mueble</button>
+              </div>
+              <div class="document-line-list" id="quote-item-lines"></div>
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="quote-submit">Guardar presupuesto</button>
+              <button class="secondary-button hidden" type="button" id="quote-cancel">Cancelar</button>
+            </div>
+          </form>
+
+          <div class="invoice-summary-grid hidden" id="quote-builder">
+            <article class="metric-card">
+              <span>Costo estimado</span>
+              <strong id="quote-cost">$0</strong>
+              <small>mueble cargado o manual</small>
+            </article>
+            <article class="metric-card">
+              <span>Total presupuesto</span>
+              <strong id="quote-total">$0</strong>
+              <small>precio + envío</small>
+            </article>
+            <article class="metric-card">
+              <span>Margen estimado</span>
+              <strong id="quote-profit">$0</strong>
+              <small>precio - costo</small>
+            </article>
+            <article class="metric-card">
+              <span>Seña 50%</span>
+              <strong id="quote-deposit-label">$0</strong>
+              <small>para comenzar</small>
+            </article>
+            <article class="metric-card">
+              <span>Saldo</span>
+              <strong id="quote-balance-label">$0</strong>
+              <small>al entregar</small>
+            </article>
+            <article class="metric-card">
+              <span>Envío</span>
+              <strong id="quote-shipping-label">$0</strong>
+              <small id="quote-shipping-location">sin envío</small>
+            </article>
+          </div>
+
+          <section class="panel table-panel">
+            <div class="panel-title">
+              <h3>Presupuestos cargados</h3>
+              <span id="quote-count-label">0 presupuestos</span>
+            </div>
+            <div class="invoice-grid" id="quote-table"></div>
           </section>
         </section>
 
@@ -661,6 +813,126 @@
             </div>
           </section>
         </section>
+
+        <section class="view" id="production" aria-labelledby="production-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Taller</p>
+              <h2 id="production-title">Producción</h2>
+            </div>
+            <div class="toolbar">
+              <input id="production-search" type="search" placeholder="Buscar producción" autocomplete="off" />
+            </div>
+          </div>
+
+          <form class="entry-form production-form" id="production-form" autocomplete="off">
+            <label>
+              <span>Mueble</span>
+              <select id="production-furniture" required></select>
+            </label>
+            <label>
+              <span>Cantidad</span>
+              <input id="production-qty" type="number" min="1" step="1" value="1" required />
+            </label>
+            <label>
+              <span>Nota</span>
+              <input id="production-notes" type="text" placeholder="Opcional" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="production-submit">Cargar producción</button>
+            </div>
+          </form>
+
+          <div class="production-board" id="production-board">
+            <section class="panel production-column">
+              <div class="panel-title">
+                <h3>Pendientes a fabricar</h3>
+                <span id="production-pending-count">0 muebles</span>
+              </div>
+              <div class="production-list" id="production-pending-list"></div>
+            </section>
+
+            <section class="panel production-column production-column-done">
+              <div class="panel-title">
+                <h3>Hechos y pasados a stock</h3>
+                <span id="production-done-count">0 muebles</span>
+              </div>
+              <div class="production-list" id="production-done-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="tasks" aria-labelledby="tasks-title">
+          <div class="view-heading">
+            <div>
+              <p class="eyebrow">Organización diaria</p>
+              <h2 id="tasks-title">Tareas</h2>
+            </div>
+            <div class="toolbar">
+              <input id="task-search" type="search" placeholder="Buscar tarea" autocomplete="off" />
+            </div>
+          </div>
+
+          <form class="entry-form task-form" id="task-form" autocomplete="off">
+            <input type="hidden" id="task-id" />
+            <label>
+              <span>Tarea</span>
+              <input id="task-title" type="text" required placeholder="Ej: comprar tapacanto blanco" />
+            </label>
+            <label>
+              <span>Detalle</span>
+              <input id="task-notes" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Fecha</span>
+              <input id="task-due-date" type="date" />
+            </label>
+            <label>
+              <span>Prioridad</span>
+              <select id="task-priority">
+                <option value="Normal">Normal</option>
+                <option value="Alta">Alta</option>
+              </select>
+            </label>
+            <label>
+              <span>Estado</span>
+              <select id="task-status">
+                <option value="pending">Pendiente</option>
+                <option value="done">Hecha</option>
+              </select>
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit" id="task-submit">Agregar tarea</button>
+              <button class="secondary-button hidden" type="button" id="task-cancel">Cancelar</button>
+            </div>
+          </form>
+
+          <div class="task-board" id="task-board">
+            <section class="panel task-column task-column-important">
+              <div class="panel-title">
+                <h3>Importantes</h3>
+                <span id="task-important-count">0 tareas</span>
+              </div>
+              <div class="task-list" id="task-important-list"></div>
+            </section>
+
+            <section class="panel task-column">
+              <div class="panel-title">
+                <h3>Pendientes</h3>
+                <span id="task-pending-count">0 tareas</span>
+              </div>
+              <div class="task-list" id="task-pending-list"></div>
+            </section>
+
+            <section class="panel task-column task-column-done">
+              <div class="panel-title">
+                <h3>Hechas</h3>
+                <span id="task-done-count">0 tareas</span>
+              </div>
+              <div class="task-list" id="task-done-list"></div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -720,6 +992,6 @@
     </div>
 
     <script src="firebase-config.js?v=20260602-invoice-stock-later"></script>
-    <script src="app.js?v=20260604-business-pdf"></script>
+    <script src="app.js?v=20260605-documents-multi-items"></script>
   </body>
 </html>

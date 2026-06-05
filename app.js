@@ -1,7 +1,7 @@
 const STORAGE_KEY = "dilucca-management-v1";
 const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
-const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "orders"];
+const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "quotes", "orders", "tasks", "production"];
 const FIREBASE_COLLECTIONS = [...DATA_COLLECTIONS, "settings"];
 const DEFAULT_BUSINESS_PROFILE = {
   id: "business",
@@ -15,6 +15,14 @@ const DEFAULT_BUSINESS_PROFILE = {
 };
 const DEFAULT_SETTINGS = [{ id: "pricing", suggestedMarkup: 80 }, DEFAULT_BUSINESS_PROFILE];
 const INVOICE_STATUSES = ["Pendiente", "Entregado", "Cancelado"];
+const QUOTE_CONDITIONS = [
+  "El presente presupuesto tiene una validez de 7 días corridos desde su fecha de emisión.",
+  "Para comenzar el trabajo se toma una seña del 50%.",
+  "El saldo se abona al momento de la entrega.",
+  "La entrega se realiza en 15 días.",
+  "El precio corresponde al diseño y medidas acordadas.",
+  "Cualquier modificación en diseño, medidas o distribución puede variar el valor final.",
+];
 
 const sampleData = {
   supplies: [
@@ -114,7 +122,10 @@ const sampleData = {
       createdAt: "2026-06-01T12:00:00.000Z",
     },
   ],
+  quotes: [],
   orders: [],
+  tasks: [],
+  production: [],
   settings: structuredClone(DEFAULT_SETTINGS),
 };
 
@@ -122,6 +133,8 @@ const state = loadState();
 let furnitureDraft = createFurnitureDraft();
 let orderDraft = [];
 let currentOrderId = "";
+let invoiceExtraItems = [];
+let quoteExtraItems = [];
 let modalConfirmAction = null;
 let currentFurniturePhoto = "";
 let storageWarningShown = false;
@@ -141,6 +154,7 @@ const cloudSync = {
   modules: {},
   businessId: "",
   unsubscribes: [],
+  needsSave: false,
 };
 
 const formatCurrency = new Intl.NumberFormat("es-AR", {
@@ -202,6 +216,8 @@ const elements = {
     id: $("#furniture-id"),
     name: $("#furniture-name"),
     notes: $("#furniture-notes"),
+    kind: $("#furniture-kind"),
+    thirdPartyCost: $("#furniture-third-party-cost"),
     length: $("#furniture-length"),
     width: $("#furniture-width"),
     height: $("#furniture-height"),
@@ -227,6 +243,7 @@ const elements = {
     showForm: $("#show-invoice-form"),
     id: $("#invoice-id"),
     furniture: $("#invoice-furniture"),
+    qty: $("#invoice-qty"),
     client: $("#invoice-client"),
     phone: $("#invoice-phone"),
     date: $("#invoice-date"),
@@ -250,6 +267,41 @@ const elements = {
     balanceLabel: $("#invoice-balance-label"),
     shippingLabel: $("#invoice-shipping-label"),
     shippingLocation: $("#invoice-shipping-location"),
+    addItem: $("#add-invoice-item"),
+    itemLines: $("#invoice-item-lines"),
+  },
+  quotes: {
+    form: $("#quote-form"),
+    builder: $("#quote-builder"),
+    showForm: $("#show-quote-form"),
+    id: $("#quote-id"),
+    furniture: $("#quote-furniture"),
+    qty: $("#quote-qty"),
+    customFurniture: $("#quote-custom-furniture"),
+    customCost: $("#quote-custom-cost"),
+    client: $("#quote-client"),
+    phone: $("#quote-phone"),
+    date: $("#quote-date"),
+    price: $("#quote-price"),
+    shippingRequired: $("#quote-shipping-required"),
+    shippingPrice: $("#quote-shipping-price"),
+    location: $("#quote-location"),
+    payment: $("#quote-payment"),
+    notes: $("#quote-notes"),
+    submit: $("#quote-submit"),
+    cancel: $("#quote-cancel"),
+    search: $("#quote-search"),
+    table: $("#quote-table"),
+    count: $("#quote-count-label"),
+    cost: $("#quote-cost"),
+    total: $("#quote-total"),
+    profit: $("#quote-profit"),
+    depositLabel: $("#quote-deposit-label"),
+    balanceLabel: $("#quote-balance-label"),
+    shippingLabel: $("#quote-shipping-label"),
+    shippingLocation: $("#quote-shipping-location"),
+    addItem: $("#add-quote-item"),
+    itemLines: $("#quote-item-lines"),
   },
   orders: {
     form: $("#order-form"),
@@ -266,6 +318,38 @@ const elements = {
     export: $("#export-order"),
     savedTable: $("#saved-order-table"),
     savedCount: $("#saved-order-count-label"),
+  },
+  tasks: {
+    form: $("#task-form"),
+    id: $("#task-id"),
+    title: $("#task-title"),
+    notes: $("#task-notes"),
+    dueDate: $("#task-due-date"),
+    priority: $("#task-priority"),
+    status: $("#task-status"),
+    submit: $("#task-submit"),
+    cancel: $("#task-cancel"),
+    search: $("#task-search"),
+    board: $("#task-board"),
+    importantList: $("#task-important-list"),
+    pendingList: $("#task-pending-list"),
+    doneList: $("#task-done-list"),
+    importantCount: $("#task-important-count"),
+    pendingCount: $("#task-pending-count"),
+    doneCount: $("#task-done-count"),
+  },
+  production: {
+    form: $("#production-form"),
+    furniture: $("#production-furniture"),
+    qty: $("#production-qty"),
+    notes: $("#production-notes"),
+    submit: $("#production-submit"),
+    search: $("#production-search"),
+    board: $("#production-board"),
+    pendingList: $("#production-pending-list"),
+    doneList: $("#production-done-list"),
+    pendingCount: $("#production-pending-count"),
+    doneCount: $("#production-done-count"),
   },
   stock: {
     supplyLabel: $("#stock-supply-label"),
@@ -359,7 +443,17 @@ function normalizeSettings(settings = []) {
 }
 
 function emptyState() {
-  return { supplies: [], wood: [], furniture: [], invoices: [], orders: [], settings: defaultSettings() };
+  return {
+    supplies: [],
+    wood: [],
+    furniture: [],
+    invoices: [],
+    quotes: [],
+    orders: [],
+    tasks: [],
+    production: [],
+    settings: defaultSettings(),
+  };
 }
 
 function normalizeState(source = emptyState()) {
@@ -368,7 +462,10 @@ function normalizeState(source = emptyState()) {
     wood: Array.isArray(source.wood) ? source.wood : [],
     furniture: Array.isArray(source.furniture) ? source.furniture : [],
     invoices: Array.isArray(source.invoices) ? source.invoices : [],
+    quotes: Array.isArray(source.quotes) ? source.quotes : [],
     orders: Array.isArray(source.orders) ? source.orders : [],
+    tasks: Array.isArray(source.tasks) ? source.tasks : [],
+    production: Array.isArray(source.production) ? source.production : [],
     settings: normalizeSettings(source.settings),
   };
 }
@@ -434,7 +531,7 @@ function persistLocalState() {
       state.furniture = lighterState.furniture;
       currentFurniturePhoto = "";
       showStorageWarning(
-        "El navegador no tenía espacio para guardar las fotos. Guardé los datos sin fotos para no perder insumos, madera, muebles y ventas.",
+        "El navegador no tenía espacio para guardar las fotos. Guardé los datos sin fotos para no perder insumos, madera, muebles, ventas y presupuestos.",
       );
       return true;
     } catch {
@@ -509,6 +606,10 @@ function readNumber(input, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function readPositiveInteger(input, fallback = 1) {
+  return Math.max(1, Math.floor(readNumber(input, fallback)));
+}
+
 function supplyUnitPrice(item) {
   return item.packQty > 0 ? item.packPrice / item.packQty : 0;
 }
@@ -570,7 +671,16 @@ function furnitureWoodM2Total(item) {
   return (item.wood || []).reduce((sum, line) => sum + furnitureWoodLineM2(line), 0);
 }
 
+function isThirdPartyFurniture(item = {}) {
+  return item.kind === "thirdParty" || item.source === "thirdParty";
+}
+
+function furnitureThirdPartyCost(item = {}) {
+  return Math.max(0, Number(item.thirdPartyCost || item.purchaseCost || 0));
+}
+
 function furnitureTotal(item) {
+  if (isThirdPartyFurniture(item)) return furnitureThirdPartyCost(item);
   return furnitureSupplyTotal(item) + furnitureWoodTotal(item);
 }
 
@@ -658,9 +768,77 @@ function furnitureNameById(id) {
   return furnitureById(id)?.name || "Mueble eliminado";
 }
 
+function createDocumentLine() {
+  return {
+    furnitureId: "",
+    customFurniture: "",
+    customCost: 0,
+    qty: 1,
+    price: 0,
+  };
+}
+
+function normalizeDocumentLine(line = {}) {
+  return {
+    furnitureId: cleanText(line.furnitureId),
+    customFurniture: cleanText(line.customFurniture || line.furnitureName),
+    customCost: Math.max(0, Number(line.customCost || 0)),
+    qty: Math.max(1, Number(line.qty || 1)),
+    price: Math.max(0, Number(line.price || line.unitPrice || 0)),
+  };
+}
+
+function documentLineHasItem(line = {}) {
+  return Boolean(cleanText(line.furnitureId) || cleanText(line.customFurniture || line.furnitureName));
+}
+
+function documentItems(document = {}) {
+  const savedItems = Array.isArray(document.items) ? document.items.map(normalizeDocumentLine).filter(documentLineHasItem) : [];
+  if (savedItems.length) return savedItems;
+
+  const legacyLine = normalizeDocumentLine({
+    furnitureId: document.furnitureId,
+    customFurniture: document.customFurniture || document.furnitureName,
+    customCost: document.customCost,
+    qty: document.qty || 1,
+    price: Number(document.price || 0),
+  });
+
+  return documentLineHasItem(legacyLine) ? [legacyLine] : [];
+}
+
+function documentLineName(line = {}) {
+  const normalized = normalizeDocumentLine(line);
+  return normalized.customFurniture || (normalized.furnitureId ? furnitureNameById(normalized.furnitureId) : "Mueble personalizado");
+}
+
+function documentLineUnitCost(line = {}) {
+  const normalized = normalizeDocumentLine(line);
+  if (normalized.customFurniture) return normalized.customCost;
+  const furniture = furnitureById(normalized.furnitureId);
+  return furniture ? furnitureTotal(furniture) : normalized.customCost;
+}
+
+function documentLineSubtotal(line = {}) {
+  const normalized = normalizeDocumentLine(line);
+  return normalized.price * normalized.qty;
+}
+
+function documentLineCostTotal(line = {}) {
+  const normalized = normalizeDocumentLine(line);
+  return documentLineUnitCost(normalized) * normalized.qty;
+}
+
+function documentSubtotal(document = {}) {
+  return documentItems(document).reduce((sum, line) => sum + documentLineSubtotal(line), 0);
+}
+
+function documentCostTotal(document = {}) {
+  return documentItems(document).reduce((sum, line) => sum + documentLineCostTotal(line), 0);
+}
+
 function invoiceFurnitureCost(invoice) {
-  const furniture = furnitureById(invoice.furnitureId);
-  return furniture ? furnitureTotal(furniture) : 0;
+  return documentCostTotal(invoice);
 }
 
 function invoiceShippingCost(invoice) {
@@ -668,7 +846,7 @@ function invoiceShippingCost(invoice) {
 }
 
 function invoiceTotal(invoice) {
-  return Number(invoice.price || 0) + invoiceShippingCost(invoice);
+  return documentSubtotal(invoice) + invoiceShippingCost(invoice);
 }
 
 function hasExplicitDeposit(invoice) {
@@ -676,13 +854,53 @@ function hasExplicitDeposit(invoice) {
 }
 
 function invoiceDeposit(invoice) {
-  const price = Math.max(0, Number(invoice.price || 0));
+  const price = Math.max(0, documentSubtotal(invoice));
   if (!hasExplicitDeposit(invoice)) return price;
   return Math.min(Math.max(0, Number(invoice.deposit || 0)), price);
 }
 
 function invoiceBalance(invoice) {
-  return Math.max(0, Number(invoice.price || 0) - invoiceDeposit(invoice));
+  return Math.max(0, documentSubtotal(invoice) - invoiceDeposit(invoice));
+}
+
+function quoteShippingCost(quote) {
+  return quote.shippingRequired ? Number(quote.shippingPrice || 0) : 0;
+}
+
+function quoteTotal(quote) {
+  return documentSubtotal(quote) + quoteShippingCost(quote);
+}
+
+function quoteDeposit(quote) {
+  return Math.max(0, documentSubtotal(quote)) * 0.5;
+}
+
+function quoteBalance(quote) {
+  return Math.max(0, documentSubtotal(quote) - quoteDeposit(quote));
+}
+
+function quoteCustomFurnitureName(quote) {
+  return cleanText(quote.customFurniture || quote.furnitureName);
+}
+
+function quoteFurnitureName(quote) {
+  const items = documentItems(quote);
+  if (items.length > 1) return `${documentLineName(items[0])} + ${items.length - 1} más`;
+  return items.length ? documentLineName(items[0]) : "Mueble personalizado";
+}
+
+function invoiceFurnitureName(invoice) {
+  const items = documentItems(invoice);
+  if (items.length > 1) return `${documentLineName(items[0])} + ${items.length - 1} más`;
+  return items.length ? documentLineName(items[0]) : furnitureNameById(invoice.furnitureId);
+}
+
+function quoteFurnitureCost(quote) {
+  return documentCostTotal(quote);
+}
+
+function quoteProfit(quote) {
+  return documentSubtotal(quote) - quoteFurnitureCost(quote);
 }
 
 function invoiceStatus(invoice) {
@@ -704,7 +922,7 @@ function invoicePaidAmount(invoice) {
 
 function invoiceProfit(invoice) {
   if (invoiceStatus(invoice) === "Cancelado") return 0;
-  return Number(invoice.price || 0) - invoiceFurnitureCost(invoice);
+  return documentSubtotal(invoice) - invoiceFurnitureCost(invoice);
 }
 
 function invoiceMonthKey(invoice) {
@@ -819,6 +1037,77 @@ function applySaleStockDiscount(furnitureId) {
   });
 }
 
+function saleStockDiscountSummary(document) {
+  const items = documentItems(document).filter((line) => line.furnitureId);
+  if (!items.length) return `<p class="confirm-copy">No hay muebles cargados para descontar de stock.</p>`;
+
+  return `
+    <p class="confirm-copy">La venta se guardará y se descontará del stock disponible.</p>
+    <div class="detail-section">
+      ${items
+        .map((line) => {
+          const normalized = normalizeDocumentLine(line);
+          return `<div class="detail-row"><strong>${escapeHtml(documentLineName(normalized))}</strong><span>${formatNumber.format(normalized.qty)} un.</span></div>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function applySaleStockDiscount(documentOrFurnitureId) {
+  const lines =
+    typeof documentOrFurnitureId === "string"
+      ? [normalizeDocumentLine({ furnitureId: documentOrFurnitureId, qty: 1 })]
+      : documentItems(documentOrFurnitureId).filter((line) => line.furnitureId);
+
+  lines.forEach((line) => {
+    const normalized = normalizeDocumentLine(line);
+    const furniture = furnitureById(normalized.furnitureId);
+    if (!furniture) return;
+    const qtyMultiplier = normalized.qty;
+
+    state.furniture = state.furniture.map((item) =>
+      item.id === normalized.furnitureId
+        ? {
+            ...item,
+            stock: Math.max(0, Number(item.stock || 0) - qtyMultiplier),
+          }
+        : item,
+    );
+
+    if (isThirdPartyFurniture(furniture)) return;
+
+    (furniture.supplies || []).forEach((supplyLine) => {
+      const qty = Number(supplyLine.qty || 0) * qtyMultiplier;
+      if (!supplyLine.supplyId || qty <= 0) return;
+
+      state.supplies = state.supplies.map((item) => {
+        if (item.id !== supplyLine.supplyId) return item;
+        const packQty = Number(item.packQty || 0);
+        const nextUnits = Math.max(0, supplyStockUnits(item) - qty);
+        return {
+          ...item,
+          stock: packQty > 0 ? nextUnits / packQty : 0,
+        };
+      });
+    });
+
+    (furniture.wood || []).forEach((woodLine) => {
+      const m2 = furnitureWoodLineM2(woodLine) * qtyMultiplier;
+      if (!woodLine.woodId || m2 <= 0) return;
+
+      state.wood = state.wood.map((item) =>
+        item.id === woodLine.woodId
+          ? {
+              ...item,
+              stockM2: Math.max(0, woodStockM2(item) - m2),
+            }
+          : item,
+      );
+    });
+  });
+}
+
 function orderLineFurniture(line) {
   return furnitureById(line.furnitureId);
 }
@@ -877,11 +1166,70 @@ function normalizeOrderLines(lines = []) {
     }));
 }
 
+function taskStatus(task) {
+  return cleanText(task.status) === "done" ? "done" : "pending";
+}
+
+function taskPriority(task) {
+  return cleanText(task.priority) === "Alta" ? "Alta" : "Normal";
+}
+
+function taskIsDone(task) {
+  return taskStatus(task) === "done";
+}
+
+function productionStatus(item) {
+  return cleanText(item.status) === "done" ? "done" : "pending";
+}
+
+function productionIsDone(item) {
+  return productionStatus(item) === "done";
+}
+
+function productionQty(item) {
+  return Math.max(1, Math.floor(Number(item.qty || 1)));
+}
+
+function productionFurnitureName(item) {
+  return furnitureById(item.furnitureId)?.name || "Mueble eliminado";
+}
+
+function taskDueLabel(task) {
+  return task.dueDate ? formatInvoiceDate(task.dueDate) : "Sin fecha";
+}
+
+function taskDueClass(task) {
+  if (taskIsDone(task) || !task.dueDate) return "";
+  return task.dueDate < todayValue() ? " is-overdue" : "";
+}
+
+function sortTasks(a, b) {
+  if (taskIsDone(a) !== taskIsDone(b)) return taskIsDone(a) ? 1 : -1;
+  if (taskPriority(a) !== taskPriority(b)) return taskPriority(a) === "Alta" ? -1 : 1;
+  const dateA = cleanText(a.dueDate) || "9999-12-31";
+  const dateB = cleanText(b.dueDate) || "9999-12-31";
+  return dateA.localeCompare(dateB) || new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+}
+
+function sortProduction(a, b) {
+  if (productionIsDone(a) !== productionIsDone(b)) return productionIsDone(a) ? 1 : -1;
+  const dateA = productionIsDone(a) ? a.completedAt || a.updatedAt || a.createdAt : a.createdAt;
+  const dateB = productionIsDone(b) ? b.completedAt || b.updatedAt || b.createdAt : b.createdAt;
+  return new Date(dateB || 0) - new Date(dateA || 0);
+}
+
 function invoiceNumber(invoice) {
   const digits = cleanText(invoice.id).match(/\d+/g)?.join("").slice(-6);
   if (digits) return `DL-${digits.padStart(6, "0")}`;
   const fallback = cleanText(invoice.id).replace(/[^a-z0-9]/gi, "").toUpperCase().slice(-6);
   return `DL-${fallback || "000001"}`;
+}
+
+function quoteNumber(quote) {
+  const digits = cleanText(quote.id).match(/\d+/g)?.join("").slice(-6);
+  if (digits) return `PR-${digits.padStart(6, "0")}`;
+  const fallback = cleanText(quote.id).replace(/[^a-z0-9]/gi, "").toUpperCase().slice(-6);
+  return `PR-${fallback || "000001"}`;
 }
 
 function formatInvoiceDate(value) {
@@ -960,9 +1308,33 @@ function matchesInvoiceSearch(item) {
     item.location,
     item.payment,
     item.notes,
-    furnitureNameById(item.furnitureId),
+    invoiceFurnitureName(item),
     invoiceStatus(item),
   ].some((value) => String(value || "").toLowerCase().includes(query));
+}
+
+function matchesQuoteSearch(item) {
+  const query = elements.quotes.search.value.trim().toLowerCase();
+  if (!query) return true;
+  return [item.client, item.phone, item.location, item.payment, item.notes, quoteFurnitureName(item)].some((value) =>
+    String(value || "").toLowerCase().includes(query),
+  );
+}
+
+function matchesTaskSearch(item) {
+  const query = elements.tasks.search.value.trim().toLowerCase();
+  if (!query) return true;
+  return [item.title, item.notes, taskPriority(item), taskDueLabel(item)].some((value) =>
+    String(value || "").toLowerCase().includes(query),
+  );
+}
+
+function matchesProductionSearch(item) {
+  const query = elements.production.search.value.trim().toLowerCase();
+  if (!query) return true;
+  return [productionFurnitureName(item), item.notes, productionQty(item), productionStatus(item)].some((value) =>
+    String(value || "").toLowerCase().includes(query),
+  );
 }
 
 function renderSupplies() {
@@ -1299,11 +1671,11 @@ function renderInvoices() {
     card.innerHTML = `
       <div>
         <h4>${escapeHtml(item.client)}</h4>
-        <p>${escapeHtml(furnitureNameById(item.furnitureId))}</p>
+        <p>${escapeHtml(invoiceFurnitureName(item))}</p>
         <span class="status-pill status-${escapeHtml(invoiceStatusClass(item))}">${escapeHtml(invoiceStatus(item))}</span>
       </div>
       <div class="invoice-card-stats">
-        <span>Precio <strong>${formatCurrency.format(Number(item.price || 0))}</strong></span>
+        <span>Precio <strong>${formatCurrency.format(documentSubtotal(item))}</strong></span>
         <span>Seña <strong>${formatCurrency.format(invoiceDeposit(item))}</strong></span>
         <span>Saldo <strong>${formatCurrency.format(invoiceBalance(item))}</strong></span>
         <span>Envío <strong>${item.shippingRequired ? formatCurrency.format(invoiceShippingCost(item)) : "No"}</strong></span>
@@ -1318,6 +1690,50 @@ function renderInvoices() {
       </div>
     `;
     elements.invoices.table.appendChild(card);
+  });
+}
+
+function renderQuotes() {
+  const rows = state.quotes.filter(matchesQuoteSearch);
+  elements.quotes.table.innerHTML = "";
+  elements.quotes.count.textContent = `${rows.length} presupuestos`;
+
+  if (!rows.length) {
+    elements.quotes.table.innerHTML = `<div class="empty-state">Sin presupuestos cargados.</div>`;
+    return;
+  }
+
+  rows.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "invoice-card quote-card clickable-row";
+    card.dataset.viewQuote = item.id;
+    card.innerHTML = `
+      <div>
+        <h4>${escapeHtml(item.client)}</h4>
+        <p>${escapeHtml(quoteFurnitureName(item))}</p>
+        <span class="status-pill quote-pill">${escapeHtml(quoteNumber(item))}</span>
+      </div>
+      <div class="invoice-card-stats">
+        <span>Precio <strong>${formatCurrency.format(documentSubtotal(item))}</strong></span>
+        <span>Seña 50% <strong>${formatCurrency.format(quoteDeposit(item))}</strong></span>
+        <span>Saldo <strong>${formatCurrency.format(quoteBalance(item))}</strong></span>
+        <span>Envío <strong>${item.shippingRequired ? formatCurrency.format(quoteShippingCost(item)) : "No"}</strong></span>
+        <span>Total <strong>${formatCurrency.format(quoteTotal(item))}</strong></span>
+        <span>Margen <strong>${formatCurrency.format(quoteProfit(item))}</strong></span>
+      </div>
+      <p>${escapeHtml(item.shippingRequired ? item.location || "Envío sin ubicación" : "Retira / sin envío")}</p>
+      <div class="invoice-card-actions">
+        <button class="table-action pdf" type="button" data-print-quote="${item.id}">PDF</button>
+        ${
+          item.convertedInvoiceId
+            ? `<span class="table-action is-static">En venta</span>`
+            : `<button class="table-action" type="button" data-convert-quote="${item.id}">Pasar a venta</button>`
+        }
+        <button class="table-action" type="button" data-edit-quote="${item.id}">Editar</button>
+        <button class="table-action delete" type="button" data-delete-quote="${item.id}">Borrar</button>
+      </div>
+    `;
+    elements.quotes.table.appendChild(card);
   });
 }
 
@@ -1581,8 +1997,13 @@ function renderAll() {
   renderFurnitureBuilder();
   renderInvoices();
   renderInvoiceFurnitureOptions();
+  renderQuotes();
+  renderQuoteFurnitureOptions();
   renderOrders();
+  renderProduction();
+  renderTasks();
   updateInvoiceSummary();
+  updateQuoteSummary();
   renderStock();
   renderDashboard();
 }
@@ -1595,6 +2016,19 @@ function renderOrderFurnitureOptions(selectedId = elements.orders.furniture.valu
     options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
   });
   elements.orders.furniture.innerHTML = options.join("");
+}
+
+function renderProductionFurnitureOptions(selectedId = elements.production.furniture.value) {
+  const options = [`<option value="">Elegí mueble</option>`];
+  state.furniture
+    .slice()
+    .sort((a, b) => cleanText(a.name).localeCompare(cleanText(b.name), "es", { numeric: true, sensitivity: "base" }))
+    .forEach((item) => {
+      const selected = item.id === selectedId ? " selected" : "";
+      const stock = `${formatNumber.format(Number(item.stock || 0))} en stock`;
+      options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(`${item.name} - ${stock}`)}</option>`);
+    });
+  elements.production.furniture.innerHTML = options.join("");
 }
 
 function renderOrders() {
@@ -1665,6 +2099,100 @@ function renderSavedOrders() {
     `;
     elements.orders.savedTable.appendChild(tr);
   });
+}
+
+function taskCardTemplate(item) {
+  const done = taskIsDone(item);
+  const toggleLabel = done ? "Reabrir" : "Hecha";
+  const priority = taskPriority(item);
+  return `
+    <article class="task-card${done ? " is-done" : ""}${taskDueClass(item)}">
+      <div class="task-card-main">
+        <span class="task-check" aria-hidden="true">${done ? "✓" : ""}</span>
+        <div>
+          <h4>${escapeHtml(item.title)}</h4>
+          ${item.notes ? `<p>${escapeHtml(item.notes)}</p>` : ""}
+        </div>
+      </div>
+      <div class="task-meta">
+        <span class="task-date">${escapeHtml(taskDueLabel(item))}</span>
+        <span class="task-priority task-priority-${priority.toLowerCase()}">${escapeHtml(priority)}</span>
+      </div>
+      <div class="task-actions">
+        <button class="table-action" type="button" data-toggle-task="${item.id}">${toggleLabel}</button>
+        <button class="table-action" type="button" data-edit-task="${item.id}">Editar</button>
+        <button class="table-action delete" type="button" data-delete-task="${item.id}">Borrar</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderTaskList(list, target, emptyText) {
+  target.innerHTML = list.length
+    ? list.map(taskCardTemplate).join("")
+    : `<div class="empty-state task-empty">${emptyText}</div>`;
+}
+
+function renderTasks() {
+  const rows = [...(state.tasks || [])].filter(matchesTaskSearch).sort(sortTasks);
+  const important = rows.filter((item) => !taskIsDone(item) && taskPriority(item) === "Alta");
+  const pending = rows.filter((item) => !taskIsDone(item) && taskPriority(item) !== "Alta");
+  const done = rows.filter(taskIsDone);
+
+  elements.tasks.importantCount.textContent = `${important.length} tareas`;
+  elements.tasks.pendingCount.textContent = `${pending.length} tareas`;
+  elements.tasks.doneCount.textContent = `${done.length} tareas`;
+
+  renderTaskList(important, elements.tasks.importantList, "Sin tareas importantes.");
+  renderTaskList(pending, elements.tasks.pendingList, "Sin tareas pendientes.");
+  renderTaskList(done, elements.tasks.doneList, "Sin tareas hechas.");
+}
+
+function productionCardTemplate(item) {
+  const done = productionIsDone(item);
+  const furniture = furnitureById(item.furnitureId);
+  return `
+    <article class="production-card${done ? " is-done" : ""}">
+      <div class="production-card-main">
+        <div>
+          <h4>${escapeHtml(productionFurnitureName(item))}</h4>
+          <p>${formatNumber.format(productionQty(item))} un. para fabricar</p>
+          ${item.notes ? `<p>${escapeHtml(item.notes)}</p>` : ""}
+        </div>
+        <span class="production-status">${done ? "Hecho" : "Pendiente"}</span>
+      </div>
+      <div class="production-meta">
+        <span>Stock actual: ${formatNumber.format(Number(furniture?.stock || 0))} un.</span>
+        <span>${done ? `Finalizado ${escapeHtml(formatInvoiceDate((item.completedAt || "").slice(0, 10)))}` : `Cargado ${escapeHtml(formatInvoiceDate((item.createdAt || "").slice(0, 10)))}`}</span>
+      </div>
+      <div class="production-actions">
+        ${
+          done
+            ? ""
+            : `<button class="primary-button" type="button" data-complete-production="${item.id}">Marcar hecho</button>`
+        }
+        <button class="table-action delete" type="button" data-delete-production="${item.id}">Borrar</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderProductionList(list, target, emptyText) {
+  target.innerHTML = list.length
+    ? list.map(productionCardTemplate).join("")
+    : `<div class="empty-state task-empty">${emptyText}</div>`;
+}
+
+function renderProduction() {
+  renderProductionFurnitureOptions();
+  const rows = [...(state.production || [])].filter(matchesProductionSearch).sort(sortProduction);
+  const pending = rows.filter((item) => !productionIsDone(item));
+  const done = rows.filter(productionIsDone);
+
+  elements.production.pendingCount.textContent = `${pending.length} muebles`;
+  elements.production.doneCount.textContent = `${done.length} muebles`;
+  renderProductionList(pending, elements.production.pendingList, "Sin muebles pendientes.");
+  renderProductionList(done, elements.production.doneList, "Sin muebles hechos.");
 }
 
 function getFirebaseConfig() {
@@ -1765,6 +2293,7 @@ function stopCloudListeners() {
   cloudSync.refs = {};
   cloudSync.snapshots = {};
   cloudSync.ready = false;
+  cloudSync.needsSave = false;
 }
 
 function handleSignedOut() {
@@ -1815,7 +2344,10 @@ function handleCloudSnapshot(collectionName, snapshot) {
     wood: cloudSync.snapshots.wood,
     furniture: cloudSync.snapshots.furniture,
     invoices: cloudSync.snapshots.invoices,
+    quotes: cloudSync.snapshots.quotes,
     orders: cloudSync.snapshots.orders,
+    tasks: cloudSync.snapshots.tasks,
+    production: cloudSync.snapshots.production,
     settings: cloudSync.snapshots.settings,
   });
 
@@ -1829,10 +2361,15 @@ function handleCloudSnapshot(collectionName, snapshot) {
     }
   }
 
+  if (cloudSync.saving) {
+    updateSyncStatus("Sincronizando", "saving");
+    return;
+  }
+
   replaceState(remoteState);
   persistLocalState();
   renderAll();
-  updateSyncStatus(cloudSync.saving ? "Sincronizando" : "Firebase conectado", "online");
+  updateSyncStatus("Firebase conectado", "online");
 }
 
 function scheduleCloudSave() {
@@ -1847,10 +2384,10 @@ function scheduleCloudSave() {
   cloudSaveTimer = setTimeout(writeStateToCloud, 350);
 }
 
-async function syncCollectionToCloud(collectionName) {
+async function syncCollectionToCloud(collectionName, sourceState = state) {
   const { doc, getDocs, writeBatch } = cloudSync.modules;
   const collectionRef = cloudSync.refs[collectionName];
-  const localItems = Array.isArray(state[collectionName]) ? state[collectionName] : [];
+  const localItems = Array.isArray(sourceState[collectionName]) ? sourceState[collectionName] : [];
   const snapshot = await getDocs(collectionRef);
   const localIds = new Set(localItems.map((item) => item.id).filter(Boolean));
   const batch = writeBatch(cloudSync.db);
@@ -1872,14 +2409,21 @@ async function syncCollectionToCloud(collectionName) {
 }
 
 async function writeStateToCloud() {
-  if (!cloudSync.enabled || !cloudSync.user || !cloudSync.ready || cloudSync.saving) return;
+  if (!cloudSync.enabled || !cloudSync.user || !cloudSync.ready) return;
+
+  if (cloudSync.saving) {
+    cloudSync.needsSave = true;
+    return;
+  }
 
   try {
     cloudSync.saving = true;
+    cloudSync.needsSave = false;
     updateSyncStatus("Sincronizando", "saving");
+    const stateToSave = normalizeState(structuredClone(state));
 
     for (const collectionName of FIREBASE_COLLECTIONS) {
-      await syncCollectionToCloud(collectionName);
+      await syncCollectionToCloud(collectionName, stateToSave);
     }
 
     updateSyncStatus("Firebase conectado", "online");
@@ -1888,6 +2432,7 @@ async function writeStateToCloud() {
     updateSyncStatus("Error al guardar", "error");
   } finally {
     cloudSync.saving = false;
+    if (cloudSync.needsSave) scheduleCloudSave();
   }
 }
 
@@ -2001,16 +2546,27 @@ function updateFurnitureTotal() {
     });
   });
 
-  const draftItem = { supplies: furnitureDraft.supplies, wood: furnitureDraft.wood };
-  const supplyCount = furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0).length;
-  const woodM2 = furnitureWoodM2Total(draftItem);
+  const isThirdParty = elements.furniture.kind.value === "thirdParty";
+  const draftItem = isThirdParty
+    ? { kind: "thirdParty", thirdPartyCost: readNumber(elements.furniture.thirdPartyCost) }
+    : { supplies: furnitureDraft.supplies, wood: furnitureDraft.wood };
+  const supplyCount = isThirdParty ? 0 : furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0).length;
+  const woodM2 = isThirdParty ? 0 : furnitureWoodM2Total(draftItem);
   const total = furnitureTotal(draftItem);
 
   elements.furniture.total.textContent = formatCurrency.format(total);
   elements.furniture.totalDetail.textContent =
-    supplyCount || woodM2
+    isThirdParty
+      ? "Mueble tercerizado / reventa"
+      : supplyCount || woodM2
       ? `${formatNumber.format(supplyCount)} insumos - ${formatNumber.format(woodM2)} m2 de madera`
       : "Sin ítems seleccionados";
+}
+
+function updateFurnitureMode() {
+  const isThirdParty = elements.furniture.kind.value === "thirdParty";
+  elements.furniture.builder.classList.toggle("is-third-party", isThirdParty);
+  updateFurnitureTotal();
 }
 
 function filterFurnitureSupplyOptions(input) {
@@ -2086,7 +2642,7 @@ function handleFurnitureLineChange(event) {
 }
 
 function renderInvoiceFurnitureOptions(selectedId = elements.invoices.furniture.value) {
-  const options = [`<option value="">Elegí mueble</option>`];
+  const options = [`<option value="">Sin mueble principal</option>`];
   state.furniture.forEach((item) => {
     const selected = item.id === selectedId ? " selected" : "";
     const label = `${item.name} - costo ${formatCurrency.format(furnitureTotal(item))}`;
@@ -2095,17 +2651,177 @@ function renderInvoiceFurnitureOptions(selectedId = elements.invoices.furniture.
   elements.invoices.furniture.innerHTML = options.join("");
 }
 
+function renderQuoteFurnitureOptions(selectedId = elements.quotes.furniture.value) {
+  const options = [`<option value="">Personalizado / sin mueble cargado</option>`];
+  state.furniture.forEach((item) => {
+    const selected = item.id === selectedId ? " selected" : "";
+    const label = `${item.name} - costo ${formatCurrency.format(furnitureTotal(item))}`;
+    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+  });
+  elements.quotes.furniture.innerHTML = options.join("");
+}
+
 function currentInvoiceDraft() {
   const shippingRequired = elements.invoices.shippingRequired.value === "yes";
+  const items = collectInvoiceItemsFromForm();
   return {
-    furnitureId: elements.invoices.furniture.value,
-    price: readNumber(elements.invoices.price),
+    items,
+    furnitureId: items[0]?.furnitureId || "",
+    price: documentSubtotal({ items }),
     deposit: readNumber(elements.invoices.deposit),
     status: elements.invoices.status.value,
     shippingRequired,
     shippingPrice: shippingRequired ? readNumber(elements.invoices.shippingPrice) : 0,
     location: cleanText(elements.invoices.location.value),
   };
+}
+
+function currentQuoteDraft() {
+  const shippingRequired = elements.quotes.shippingRequired.value === "yes";
+  const items = collectQuoteItemsFromForm();
+  return {
+    items,
+    furnitureId: items[0]?.furnitureId || "",
+    customFurniture: items[0]?.customFurniture || "",
+    customCost: items[0]?.customCost || 0,
+    price: documentSubtotal({ items }),
+    shippingRequired,
+    shippingPrice: shippingRequired ? readNumber(elements.quotes.shippingPrice) : 0,
+    location: cleanText(elements.quotes.location.value),
+  };
+}
+
+function documentFurnitureOptions(selectedId = "") {
+  const options = [`<option value="">Personalizado / sin mueble cargado</option>`];
+  state.furniture
+    .slice()
+    .sort((a, b) => cleanText(a.name).localeCompare(cleanText(b.name), "es", { numeric: true, sensitivity: "base" }))
+    .forEach((item) => {
+      const selected = item.id === selectedId ? " selected" : "";
+      const kind = isThirdPartyFurniture(item) ? "tercerizado" : "propio";
+      const label = `${item.name} (${kind}) - costo ${formatCurrency.format(furnitureTotal(item))}`;
+      options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(label)}</option>`);
+    });
+  return options.join("");
+}
+
+function documentLineTemplate(line, index, kind) {
+  const normalized = normalizeDocumentLine(line);
+  return `
+    <div class="document-line-row" data-document-line="${kind}" data-index="${index}">
+      <label>
+        <span>Mueble cargado</span>
+        <select data-field="furnitureId">${documentFurnitureOptions(normalized.furnitureId)}</select>
+      </label>
+      <label>
+        <span>Personalizado</span>
+        <input data-field="customFurniture" type="text" value="${escapeHtml(normalized.customFurniture)}" placeholder="Ej: silla tapizada" />
+      </label>
+      <label>
+        <span>Costo</span>
+        <input data-field="customCost" type="number" min="0" step="0.01" value="${normalized.customCost}" />
+      </label>
+      <label>
+        <span>Cantidad</span>
+        <input data-field="qty" type="number" min="1" step="1" value="${normalized.qty}" />
+      </label>
+      <label>
+        <span>Precio unit.</span>
+        <input data-field="price" type="number" min="0" step="0.01" value="${normalized.price}" />
+      </label>
+      <button class="table-action delete" type="button" data-remove-document-item="${kind}:${index}">Quitar</button>
+    </div>
+  `;
+}
+
+function renderDocumentExtraItems(kind) {
+  const items = kind === "invoice" ? invoiceExtraItems : quoteExtraItems;
+  const target = kind === "invoice" ? elements.invoices.itemLines : elements.quotes.itemLines;
+  target.innerHTML = items.map((line, index) => documentLineTemplate(line, index, kind)).join("");
+}
+
+function syncDocumentExtraItems(kind) {
+  const target = kind === "invoice" ? elements.invoices.itemLines : elements.quotes.itemLines;
+  const rows = Array.from(target.querySelectorAll("[data-document-line]"));
+  const nextItems = rows.map((row) =>
+    normalizeDocumentLine({
+      furnitureId: row.querySelector('[data-field="furnitureId"]')?.value || "",
+      customFurniture: row.querySelector('[data-field="customFurniture"]')?.value || "",
+      customCost: row.querySelector('[data-field="customCost"]')?.value || 0,
+      qty: row.querySelector('[data-field="qty"]')?.value || 1,
+      price: row.querySelector('[data-field="price"]')?.value || 0,
+    }),
+  );
+
+  if (kind === "invoice") {
+    invoiceExtraItems = nextItems;
+  } else {
+    quoteExtraItems = nextItems;
+  }
+}
+
+function mainInvoiceLineFromForm() {
+  return normalizeDocumentLine({
+    furnitureId: elements.invoices.furniture.value,
+    qty: readPositiveInteger(elements.invoices.qty),
+    price: readNumber(elements.invoices.price),
+  });
+}
+
+function mainQuoteLineFromForm() {
+  return normalizeDocumentLine({
+    furnitureId: elements.quotes.furniture.value,
+    customFurniture: elements.quotes.customFurniture.value,
+    customCost: readNumber(elements.quotes.customCost),
+    qty: readPositiveInteger(elements.quotes.qty),
+    price: readNumber(elements.quotes.price),
+  });
+}
+
+function collectInvoiceItemsFromForm() {
+  syncDocumentExtraItems("invoice");
+  return [mainInvoiceLineFromForm(), ...invoiceExtraItems].filter(documentLineHasItem);
+}
+
+function collectQuoteItemsFromForm() {
+  syncDocumentExtraItems("quote");
+  return [mainQuoteLineFromForm(), ...quoteExtraItems].filter(documentLineHasItem);
+}
+
+function addDocumentExtraItem(kind) {
+  syncDocumentExtraItems(kind);
+  if (kind === "invoice") {
+    invoiceExtraItems.unshift(createDocumentLine());
+  } else {
+    quoteExtraItems.unshift(createDocumentLine());
+  }
+  renderDocumentExtraItems(kind);
+  const target = kind === "invoice" ? elements.invoices.itemLines : elements.quotes.itemLines;
+  target.querySelector('[data-field="furnitureId"]')?.focus();
+  kind === "invoice" ? updateInvoiceSummary() : updateQuoteSummary();
+}
+
+function removeDocumentExtraItem(kind, index) {
+  syncDocumentExtraItems(kind);
+  if (kind === "invoice") {
+    invoiceExtraItems.splice(index, 1);
+  } else {
+    quoteExtraItems.splice(index, 1);
+  }
+  renderDocumentExtraItems(kind);
+  kind === "invoice" ? updateInvoiceSummary() : updateQuoteSummary();
+}
+
+function handleDocumentExtraItemChange(kind) {
+  syncDocumentExtraItems(kind);
+  kind === "invoice" ? updateInvoiceSummary() : updateQuoteSummary();
+}
+
+function handleDocumentExtraItemClick(event) {
+  const removeButton = event.target.closest("[data-remove-document-item]");
+  if (!removeButton) return;
+  const [kind, index] = removeButton.dataset.removeDocumentItem.split(":");
+  removeDocumentExtraItem(kind, Number(index));
 }
 
 function handleOrderSubmit(event) {
@@ -2348,6 +3064,26 @@ function handleInvoiceChange() {
   updateInvoiceSummary();
 }
 
+function updateQuoteSummary() {
+  const draft = currentQuoteDraft();
+  const shippingDisabled = !draft.shippingRequired;
+
+  elements.quotes.shippingPrice.disabled = shippingDisabled;
+  elements.quotes.location.disabled = shippingDisabled;
+
+  elements.quotes.cost.textContent = formatCurrency.format(quoteFurnitureCost(draft));
+  elements.quotes.total.textContent = formatCurrency.format(quoteTotal(draft));
+  elements.quotes.profit.textContent = formatCurrency.format(quoteProfit(draft));
+  elements.quotes.depositLabel.textContent = formatCurrency.format(quoteDeposit(draft));
+  elements.quotes.balanceLabel.textContent = formatCurrency.format(quoteBalance(draft));
+  elements.quotes.shippingLabel.textContent = draft.shippingRequired ? formatCurrency.format(quoteShippingCost(draft)) : "No";
+  elements.quotes.shippingLocation.textContent = draft.shippingRequired ? draft.location || "sin ubicación" : "sin envío";
+}
+
+function handleQuoteChange() {
+  updateQuoteSummary();
+}
+
 function handleStockPanelChange() {
   activeStockPanel = elements.stock.mobileSelect.value || "supplies";
   updateStockPanelVisibility();
@@ -2561,6 +3297,7 @@ function showFurnitureDetail(id) {
   const supplyTotal = furnitureSupplyTotal(item);
   const woodTotal = furnitureWoodTotal(item);
   const dimensions = furnitureDimensionsText(item);
+  const thirdParty = isThirdPartyFurniture(item);
 
   openModal({
     eyebrow: "Detalle de mueble",
@@ -2569,12 +3306,12 @@ function showFurnitureDetail(id) {
       ${item.photo ? `<img class="detail-photo" src="${escapeHtml(item.photo)}" alt="${escapeHtml(item.name)}" />` : ""}
       <div class="detail-summary">
         <div class="detail-metric">
-          <span>Insumos</span>
-          <strong>${formatCurrency.format(supplyTotal)}</strong>
+          <span>${thirdParty ? "Tipo" : "Insumos"}</span>
+          <strong>${thirdParty ? "Tercerizado" : formatCurrency.format(supplyTotal)}</strong>
         </div>
         <div class="detail-metric">
-          <span>Madera</span>
-          <strong>${formatCurrency.format(woodTotal)}</strong>
+          <span>${thirdParty ? "Costo compra" : "Madera"}</span>
+          <strong>${thirdParty ? formatCurrency.format(furnitureThirdPartyCost(item)) : formatCurrency.format(woodTotal)}</strong>
         </div>
         <div class="detail-metric">
           <span>Costo</span>
@@ -2594,14 +3331,18 @@ function showFurnitureDetail(id) {
             </div>`
           : ""
       }
-      <div class="detail-section">
-        <h3>Insumos</h3>
-        ${detailSupplyRows(supplies)}
-      </div>
-      <div class="detail-section">
-        <h3>Madera</h3>
-        ${detailWoodRows(wood)}
-      </div>
+      ${
+        thirdParty
+          ? `<div class="detail-section"><h3>Reventa</h3><div class="detail-row"><strong>No descuenta insumos ni madera</strong><span>Solo stock del mueble</span></div></div>`
+          : `<div class="detail-section">
+              <h3>Insumos</h3>
+              ${detailSupplyRows(supplies)}
+            </div>
+            <div class="detail-section">
+              <h3>Madera</h3>
+              ${detailWoodRows(wood)}
+            </div>`
+      }
     `,
   });
 }
@@ -2617,7 +3358,7 @@ function showInvoiceDetail(id) {
       <div class="detail-summary">
         <div class="detail-metric">
           <span>Mueble</span>
-          <strong>${escapeHtml(furnitureNameById(item.furnitureId))}</strong>
+          <strong>${escapeHtml(invoiceFurnitureName(item))}</strong>
         </div>
         <div class="detail-metric">
           <span>Total venta</span>
@@ -2636,13 +3377,14 @@ function showInvoiceDetail(id) {
             : `<button class="secondary-button" type="button" data-discount-invoice-stock="${item.id}">Descontar stock ahora</button>`
         }
       </div>
+      ${documentItemDetailRows(item)}
       <div class="detail-section">
         <h3>Datos</h3>
         <div class="detail-row"><strong>Fecha</strong><span>${escapeHtml(item.date || "-")}</span></div>
         <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
         <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
         <div class="detail-row"><strong>Estado</strong><span>${escapeHtml(invoiceStatus(item))}</span></div>
-        <div class="detail-row"><strong>Precio de venta</strong><span>${formatCurrency.format(Number(item.price || 0))}</span></div>
+        <div class="detail-row"><strong>Precio de venta</strong><span>${formatCurrency.format(documentSubtotal(item))}</span></div>
         <div class="detail-row"><strong>Seña</strong><span>${formatCurrency.format(invoiceDeposit(item))}</span></div>
         <div class="detail-row"><strong>Saldo</strong><span>${formatCurrency.format(invoiceBalance(item))}</span></div>
         <div class="detail-row"><strong>Costo mueble</strong><span>${formatCurrency.format(invoiceFurnitureCost(item))}</span></div>
@@ -2655,11 +3397,88 @@ function showInvoiceDetail(id) {
   });
 }
 
-function buildInvoicePrintHtml(invoice, logoUrl) {
-  const furnitureName = furnitureNameById(invoice.furnitureId);
-  const invoicePrice = Number(invoice.price || 0);
+function documentItemDetailRows(document) {
+  const items = documentItems(document);
+  if (!items.length) return `<div class="empty-state">Sin muebles cargados.</div>`;
+
+  return `
+    <div class="detail-section">
+      <h3>Muebles</h3>
+      ${items
+        .map((line) => {
+          const normalized = normalizeDocumentLine(line);
+          return `<div class="detail-row">
+            <strong>${escapeHtml(documentLineName(normalized))}</strong>
+            <span>${formatNumber.format(normalized.qty)} un. x ${formatCurrency.format(normalized.price)}</span>
+          </div>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function showQuoteDetail(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+
+  openModal({
+    eyebrow: "Detalle de presupuesto",
+    title: item.client,
+    body: `
+      <div class="detail-summary">
+        <div class="detail-metric">
+          <span>Mueble</span>
+          <strong>${escapeHtml(quoteFurnitureName(item))}</strong>
+        </div>
+        <div class="detail-metric">
+          <span>Total presupuesto</span>
+          <strong>${formatCurrency.format(quoteTotal(item))}</strong>
+        </div>
+        <div class="detail-metric">
+          <span>Margen estimado</span>
+          <strong>${formatCurrency.format(quoteProfit(item))}</strong>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="primary-button" type="button" data-print-quote="${item.id}">Generar presupuesto</button>
+        ${
+          item.convertedInvoiceId
+            ? ""
+            : `<button class="secondary-button" type="button" data-convert-quote="${item.id}">Pasar a venta</button>`
+        }
+      </div>
+      ${documentItemDetailRows(item)}
+      <div class="detail-section">
+        <h3>Datos</h3>
+        <div class="detail-row"><strong>Número</strong><span>${escapeHtml(quoteNumber(item))}</span></div>
+        <div class="detail-row"><strong>Fecha</strong><span>${escapeHtml(item.date || "-")}</span></div>
+        <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
+        <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
+        <div class="detail-row"><strong>Precio presupuestado</strong><span>${formatCurrency.format(documentSubtotal(item))}</span></div>
+        <div class="detail-row"><strong>Seña 50%</strong><span>${formatCurrency.format(quoteDeposit(item))}</span></div>
+        <div class="detail-row"><strong>Saldo</strong><span>${formatCurrency.format(quoteBalance(item))}</span></div>
+        <div class="detail-row"><strong>Costo estimado</strong><span>${formatCurrency.format(quoteFurnitureCost(item))}</span></div>
+        <div class="detail-row"><strong>Envío</strong><span>${item.shippingRequired ? formatCurrency.format(quoteShippingCost(item)) : "No"}</span></div>
+        ${item.shippingRequired ? `<div class="detail-row"><strong>Ubicación</strong><span>${escapeHtml(item.location || "-")}</span></div>` : ""}
+      </div>
+      ${item.notes ? `<div class="detail-section"><h3>Notas</h3><p class="confirm-copy">${escapeHtml(item.notes)}</p></div>` : ""}
+    `,
+  });
+}
+
+function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
+  const invoiceItems = documentItems(invoice);
+  const invoicePrice = documentSubtotal(invoice);
   const shippingCost = invoiceShippingCost(invoice);
   const total = invoiceTotal(invoice);
+  const documentNumber = options.number || invoiceNumber(invoice);
+  const documentKind = options.kind || "Venta";
+  const documentTitle = options.title || "Comprobante de venta";
+  const depositLabel = options.depositLabel || "Seña";
+  const depositAmount = options.depositAmount ? options.depositAmount(invoice) : invoiceDeposit(invoice);
+  const balanceAmount = options.balanceAmount ? options.balanceAmount(invoice) : invoiceBalance(invoice);
+  const footerText = options.footerText || "Gracias por confiar en Muebles DiLucca.";
+  const conditions = Array.isArray(options.conditions) ? options.conditions : [];
   const notes = cleanText(invoice.notes);
   const profile = businessProfile();
   const businessRowsHtml = businessProfileRows(profile)
@@ -2668,13 +3487,26 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
   const shippingText = invoice.shippingRequired
     ? escapeHtml(invoice.location || "Envío sin ubicación")
     : "Retira / sin envío";
+  const itemRowsHtml = invoiceItems
+    .map((line) => {
+      const normalized = normalizeDocumentLine(line);
+      return `
+        <tr>
+          <td>${escapeHtml(documentLineName(normalized))}</td>
+          <td class="number">${formatNumber.format(normalized.qty)}</td>
+          <td class="number">${formatCurrency.format(normalized.price)}</td>
+          <td class="number">${formatCurrency.format(documentLineSubtotal(normalized))}</td>
+        </tr>
+      `;
+    })
+    .join("");
 
   return `<!doctype html>
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Venta ${escapeHtml(invoiceNumber(invoice))} - Muebles DiLucca</title>
+    <title>${escapeHtml(documentKind)} ${escapeHtml(documentNumber)} - Muebles DiLucca</title>
     <style>
       @page {
         size: A4;
@@ -2870,9 +3702,39 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
         border-radius: 8px;
       }
 
+      .conditions {
+        margin-top: 26px;
+      }
+
+      .conditions h2,
       .notes h2 {
         margin: 0 0 8px;
         font-size: 16px;
+      }
+
+      .conditions ul {
+        display: grid;
+        gap: 10px;
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .conditions li {
+        position: relative;
+        padding-left: 28px;
+        line-height: 1.45;
+      }
+
+      .conditions li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.48em;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #d0a12e;
       }
 
       .notes p,
@@ -2917,8 +3779,8 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           </div>
         </div>
         <div class="invoice-heading">
-          <h1>Comprobante de venta</h1>
-          <p>Nro. ${escapeHtml(invoiceNumber(invoice))}</p>
+          <h1>${escapeHtml(documentTitle)}</h1>
+          <p>Nro. ${escapeHtml(documentNumber)}</p>
           <p>Fecha ${escapeHtml(formatInvoiceDate(invoice.date))}</p>
         </div>
       </header>
@@ -2952,12 +3814,7 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>${escapeHtml(furnitureName)}</td>
-            <td class="number">1</td>
-            <td class="number">${formatCurrency.format(invoicePrice)}</td>
-            <td class="number">${formatCurrency.format(invoicePrice)}</td>
-          </tr>
+          ${itemRowsHtml}
           ${
             invoice.shippingRequired
               ? `<tr>
@@ -2977,12 +3834,12 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
           <strong>${formatCurrency.format(invoicePrice)}</strong>
         </div>
         <div class="total-row">
-          <span>Seña</span>
-          <strong>${formatCurrency.format(invoiceDeposit(invoice))}</strong>
+          <span>${escapeHtml(depositLabel)}</span>
+          <strong>${formatCurrency.format(depositAmount)}</strong>
         </div>
         <div class="total-row">
           <span>Saldo</span>
-          <strong>${formatCurrency.format(invoiceBalance(invoice))}</strong>
+          <strong>${formatCurrency.format(balanceAmount)}</strong>
         </div>
         <div class="total-row">
           <span>Envío</span>
@@ -2996,8 +3853,17 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
 
       ${notes ? `<section class="notes"><h2>Notas</h2><p>${escapeHtml(notes)}</p></section>` : ""}
 
+      ${
+        conditions.length
+          ? `<section class="conditions">
+              <h2>Condiciones</h2>
+              <ul>${conditions.map((condition) => `<li>${escapeHtml(condition)}</li>`).join("")}</ul>
+            </section>`
+          : ""
+      }
+
       <footer class="footer">
-        <p>Gracias por confiar en Muebles DiLucca.</p>
+        <p>${escapeHtml(footerText)}</p>
       </footer>
     </main>
     <script>
@@ -3023,6 +3889,36 @@ function printInvoice(id) {
 
   popup.document.open();
   popup.document.write(buildInvoicePrintHtml(item, logoUrl));
+  popup.document.close();
+  popup.focus();
+}
+
+function printQuote(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+
+  const logoUrl = new URL(INVOICE_LOGO_PATH, window.location.href).href;
+  const popup = window.open("", "_blank", "width=900,height=1100");
+
+  if (!popup) {
+    alert("El navegador bloqueó la ventana para generar el PDF. Habilitá las ventanas emergentes y probá de nuevo.");
+    return;
+  }
+
+  popup.document.open();
+  popup.document.write(
+    buildInvoicePrintHtml(item, logoUrl, {
+      kind: "Presupuesto",
+      title: "Presupuesto",
+      number: quoteNumber(item),
+      furnitureName: quoteFurnitureName(item),
+      depositLabel: "Seña 50%",
+      depositAmount: quoteDeposit,
+      balanceAmount: quoteBalance,
+      footerText: "Presupuesto válido según diseño y medidas acordadas.",
+      conditions: QUOTE_CONDITIONS,
+    }),
+  );
   popup.document.close();
   popup.focus();
 }
@@ -3164,10 +4060,17 @@ function handleFurnitureSubmit(event) {
   event.preventDefault();
   syncFurnitureDraftFromDom();
 
-  const supplies = furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0);
-  const wood = furnitureDraft.wood.filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
+  const kind = elements.furniture.kind.value === "thirdParty" ? "thirdParty" : "own";
+  const thirdPartyCost = Math.max(0, readNumber(elements.furniture.thirdPartyCost));
+  const supplies = kind === "thirdParty" ? [] : furnitureDraft.supplies.filter((line) => line.supplyId && line.qty > 0);
+  const wood = kind === "thirdParty" ? [] : furnitureDraft.wood.filter((line) => line.woodId && furnitureWoodLineM2(line) > 0);
 
-  if (!supplies.length && !wood.length) {
+  if (kind === "thirdParty" && thirdPartyCost <= 0) {
+    alert("Ingresá el costo de compra del mueble tercerizado.");
+    return;
+  }
+
+  if (kind !== "thirdParty" && !supplies.length && !wood.length) {
     alert("Agregá al menos un insumo o una madera para calcular el mueble.");
     return;
   }
@@ -3178,6 +4081,8 @@ function handleFurnitureSubmit(event) {
     id: id || createId("furniture"),
     name: cleanText(elements.furniture.name.value),
     notes: cleanText(elements.furniture.notes.value),
+    kind,
+    thirdPartyCost,
     lengthMm: readNumber(elements.furniture.length),
     widthMm: readNumber(elements.furniture.width),
     heightMm: readNumber(elements.furniture.height),
@@ -3204,13 +4109,22 @@ function handleInvoiceSubmit(event) {
   const id = elements.invoices.id.value;
   const existingInvoice = id ? state.invoices.find((item) => item.id === id) : null;
   const shippingRequired = elements.invoices.shippingRequired.value === "yes";
+  const items = collectInvoiceItemsFromForm();
+
+  if (!items.length) {
+    alert("Agregá al menos un mueble a la venta.");
+    return;
+  }
+
   const payload = {
     id: id || createId("invoice"),
-    furnitureId: elements.invoices.furniture.value,
+    quoteId: existingInvoice?.quoteId || "",
+    furnitureId: items[0]?.furnitureId || "",
+    items,
     client: cleanText(elements.invoices.client.value),
     phone: cleanText(elements.invoices.phone.value),
     date: elements.invoices.date.value || todayValue(),
-    price: readNumber(elements.invoices.price),
+    price: documentSubtotal({ items }),
     deposit: readNumber(elements.invoices.deposit),
     status: invoiceStatus({ status: elements.invoices.status.value }),
     shippingRequired,
@@ -3231,11 +4145,56 @@ function handleInvoiceSubmit(event) {
   saveInvoicePayload(payload);
 }
 
-function saveInvoicePayload(payload, { discountStock = false } = {}) {
+function handleQuoteSubmit(event) {
+  event.preventDefault();
+  const id = elements.quotes.id.value;
+  const existingQuote = id ? state.quotes.find((item) => item.id === id) : null;
+  const shippingRequired = elements.quotes.shippingRequired.value === "yes";
+  const items = collectQuoteItemsFromForm();
+  const mainLine = items[0] || createDocumentLine();
+
+  if (!items.length) {
+    alert("Elegí un mueble cargado o escribí un mueble personalizado.");
+    return;
+  }
+
+  const payload = {
+    id: id || createId("quote"),
+    furnitureId: mainLine.furnitureId || "",
+    customFurniture: mainLine.customFurniture || "",
+    customCost: mainLine.customCost || 0,
+    items,
+    client: cleanText(elements.quotes.client.value),
+    phone: cleanText(elements.quotes.phone.value),
+    date: elements.quotes.date.value || todayValue(),
+    price: documentSubtotal({ items }),
+    shippingRequired,
+    shippingPrice: shippingRequired ? readNumber(elements.quotes.shippingPrice) : 0,
+    location: shippingRequired ? cleanText(elements.quotes.location.value) : "",
+    payment: cleanText(elements.quotes.payment.value),
+    notes: cleanText(elements.quotes.notes.value),
+    convertedInvoiceId: existingQuote?.convertedInvoiceId || "",
+    convertedAt: existingQuote?.convertedAt || "",
+    createdAt: id ? getExistingCreatedAt(state.quotes, id) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (id) {
+    state.quotes = state.quotes.map((item) => (item.id === id ? payload : item));
+  } else {
+    state.quotes.unshift(payload);
+  }
+
+  resetQuoteForm();
+  closeQuoteComposer();
+  saveAndRefresh();
+}
+
+function saveInvoicePayload(payload, { discountStock = false, onSaved = null } = {}) {
   const nextPayload = { ...payload };
 
   if (discountStock && !nextPayload.stockDiscounted) {
-    applySaleStockDiscount(nextPayload.furnitureId);
+    applySaleStockDiscount(nextPayload);
     nextPayload.stockDiscounted = true;
     nextPayload.stockDiscountedAt = new Date().toISOString();
   }
@@ -3247,21 +4206,27 @@ function saveInvoicePayload(payload, { discountStock = false } = {}) {
     state.invoices.unshift(nextPayload);
   }
 
+  if (onSaved) onSaved(nextPayload);
+
   resetInvoiceForm();
   closeInvoiceComposer();
   saveAndRefresh();
 }
 
-function requestInvoiceStockDiscount(payload) {
-  const furniture = furnitureById(payload.furnitureId);
+function requestInvoiceStockDiscount(payload, options = {}) {
+  if (!documentItems(payload).some((line) => line.furnitureId)) {
+    saveInvoicePayload(payload, { onSaved: options.onSaved });
+    return;
+  }
+
   openModal({
     eyebrow: "Stock",
     title: "Descontar stock",
-    body: saleStockDiscountSummary(furniture),
+    body: saleStockDiscountSummary(payload),
     cancelLabel: "Guardar sin descontar",
     confirmLabel: "Descontar stock",
-    onCancel: () => saveInvoicePayload(payload),
-    onConfirm: () => saveInvoicePayload(payload, { discountStock: true }),
+    onCancel: () => saveInvoicePayload(payload, { onSaved: options.onSaved }),
+    onConfirm: () => saveInvoicePayload(payload, { discountStock: true, onSaved: options.onSaved }),
   });
 }
 
@@ -3269,7 +4234,7 @@ function discountInvoiceStockNow(id) {
   const invoice = state.invoices.find((item) => item.id === id);
   if (!invoice || invoice.stockDiscounted) return;
 
-  applySaleStockDiscount(invoice.furnitureId);
+  applySaleStockDiscount(invoice);
   state.invoices = state.invoices.map((item) =>
     item.id === id
       ? {
@@ -3339,6 +4304,182 @@ function handleBusinessSettingsSubmit(event) {
   }
 }
 
+function handleProductionSubmit(event) {
+  event.preventDefault();
+  const furnitureId = elements.production.furniture.value;
+  const qty = Math.max(1, Math.floor(readNumber(elements.production.qty, 1)));
+
+  if (!furnitureId) {
+    alert("Elegí un mueble para cargar en producción.");
+    return;
+  }
+
+  state.production = [
+    {
+      id: createId("production"),
+      furnitureId,
+      qty,
+      notes: cleanText(elements.production.notes.value),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    ...(state.production || []),
+  ];
+
+  resetProductionForm();
+  saveAndRefresh();
+}
+
+function resetProductionForm() {
+  elements.production.form.reset();
+  elements.production.qty.value = 1;
+  renderProductionFurnitureOptions();
+}
+
+function completeProduction(id, { addStock = true } = {}) {
+  const item = (state.production || []).find((entry) => entry.id === id);
+  if (!item || productionIsDone(item)) return;
+  const qty = productionQty(item);
+
+  if (addStock) {
+    state.furniture = state.furniture.map((furniture) =>
+      furniture.id === item.furnitureId
+        ? {
+            ...furniture,
+            stock: Number(furniture.stock || 0) + qty,
+          }
+        : furniture,
+    );
+  }
+
+  state.production = (state.production || []).map((entry) =>
+    entry.id === id
+      ? {
+          ...entry,
+          status: "done",
+          completedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      : entry,
+  );
+
+  saveAndRefresh();
+}
+
+function requestCompleteProduction(id) {
+  const item = (state.production || []).find((entry) => entry.id === id);
+  if (!item || productionIsDone(item)) return;
+
+  openModal({
+    eyebrow: "Producción",
+    title: "Pasar a stock",
+    body: `<p class="confirm-copy">${escapeHtml(`¿Confirmás que ya fabricaste ${formatNumber.format(productionQty(item))} un. de "${productionFurnitureName(item)}"?`)}</p>
+      <p class="confirm-copy">Si esta producción ya te había sumado stock antes, usá "Solo marcar hecho" para no duplicarlo.</p>`,
+    cancelLabel: "Solo marcar hecho",
+    confirmLabel: "Hecho + sumar stock",
+    onCancel: () => completeProduction(id, { addStock: false }),
+    onConfirm: () => completeProduction(id, { addStock: true }),
+  });
+}
+
+function deleteProduction(id) {
+  state.production = (state.production || []).filter((item) => item.id !== id);
+  saveAndRefresh();
+}
+
+function requestDeleteProduction(id) {
+  const item = (state.production || []).find((entry) => entry.id === id);
+  if (!item) return;
+  confirmWithModal({
+    title: "Borrar producción",
+    body: `¿Seguro que querés borrar "${productionFurnitureName(item)}"? Si ya fue marcada como hecha, el stock no se modifica.`,
+    confirmLabel: "Sí, borrar",
+    onConfirm: () => deleteProduction(id),
+  });
+}
+
+function handleTaskSubmit(event) {
+  event.preventDefault();
+  const id = elements.tasks.id.value;
+  const payload = {
+    id: id || createId("task"),
+    title: cleanText(elements.tasks.title.value),
+    notes: cleanText(elements.tasks.notes.value),
+    dueDate: elements.tasks.dueDate.value || "",
+    priority: taskPriority({ priority: elements.tasks.priority.value }),
+    status: taskStatus({ status: elements.tasks.status.value }),
+    createdAt: id ? getExistingCreatedAt(state.tasks || [], id) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!payload.title) return;
+
+  if (id) {
+    state.tasks = (state.tasks || []).map((item) => (item.id === id ? payload : item));
+  } else {
+    state.tasks = [payload, ...(state.tasks || [])];
+  }
+
+  resetTaskForm();
+  saveAndRefresh();
+}
+
+function resetTaskForm() {
+  elements.tasks.form.reset();
+  elements.tasks.id.value = "";
+  elements.tasks.priority.value = "Normal";
+  elements.tasks.status.value = "pending";
+  elements.tasks.submit.textContent = "Agregar tarea";
+  elements.tasks.cancel.classList.add("hidden");
+}
+
+function editTask(id) {
+  const item = (state.tasks || []).find((entry) => entry.id === id);
+  if (!item) return;
+
+  elements.tasks.id.value = item.id;
+  elements.tasks.title.value = item.title || "";
+  elements.tasks.notes.value = item.notes || "";
+  elements.tasks.dueDate.value = item.dueDate || "";
+  elements.tasks.priority.value = taskPriority(item);
+  elements.tasks.status.value = taskStatus(item);
+  elements.tasks.submit.textContent = "Guardar cambios";
+  elements.tasks.cancel.classList.remove("hidden");
+  elements.tasks.title.focus();
+}
+
+function toggleTaskStatus(id) {
+  state.tasks = (state.tasks || []).map((item) => {
+    if (item.id !== id) return item;
+    const nextStatus = taskIsDone(item) ? "pending" : "done";
+    return {
+      ...item,
+      status: nextStatus,
+      completedAt: nextStatus === "done" ? new Date().toISOString() : "",
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  saveAndRefresh();
+}
+
+function deleteTask(id) {
+  state.tasks = (state.tasks || []).filter((item) => item.id !== id);
+  resetTaskForm();
+  saveAndRefresh();
+}
+
+function requestDeleteTask(id) {
+  const item = (state.tasks || []).find((entry) => entry.id === id);
+  if (!item) return;
+  confirmWithModal({
+    title: "Borrar tarea",
+    body: `¿Seguro que querés borrar "${item.title}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
+    onConfirm: () => deleteTask(id),
+  });
+}
+
 function editSupply(id) {
   const item = state.supplies.find((entry) => entry.id === id);
   if (!item) return;
@@ -3379,6 +4520,8 @@ function editFurniture(id) {
   elements.furniture.id.value = item.id;
   elements.furniture.name.value = item.name;
   elements.furniture.notes.value = item.notes || "";
+  elements.furniture.kind.value = isThirdPartyFurniture(item) ? "thirdParty" : "own";
+  elements.furniture.thirdPartyCost.value = furnitureThirdPartyCost(item);
   elements.furniture.length.value = item.lengthMm || "";
   elements.furniture.width.value = item.widthMm || "";
   elements.furniture.height.value = item.heightMm || "";
@@ -3391,6 +4534,7 @@ function editFurniture(id) {
   elements.furniture.submit.textContent = "Guardar cambios";
   elements.furniture.cancel.classList.remove("hidden");
   renderFurnitureBuilder();
+  updateFurnitureMode();
   elements.furniture.name.focus();
 }
 
@@ -3437,13 +4581,18 @@ function editInvoice(id) {
   if (!item) return;
   closeModal();
   openInvoiceComposer();
-  renderInvoiceFurnitureOptions(item.furnitureId);
+  const items = documentItems(item);
+  const mainLine = items[0] || createDocumentLine();
+  invoiceExtraItems = items.slice(1);
+  renderInvoiceFurnitureOptions(mainLine.furnitureId);
+  renderDocumentExtraItems("invoice");
   elements.invoices.id.value = item.id;
-  elements.invoices.furniture.value = item.furnitureId;
+  elements.invoices.furniture.value = mainLine.furnitureId;
+  elements.invoices.qty.value = mainLine.qty || 1;
   elements.invoices.client.value = item.client;
   elements.invoices.phone.value = item.phone || "";
   elements.invoices.date.value = item.date || todayValue();
-  elements.invoices.price.value = item.price;
+  elements.invoices.price.value = mainLine.price || 0;
   elements.invoices.deposit.value = invoiceDeposit(item);
   elements.invoices.status.value = invoiceStatus(item);
   elements.invoices.shippingRequired.value = item.shippingRequired ? "yes" : "no";
@@ -3465,6 +4614,47 @@ function requestEditInvoice(id) {
     body: `¿Querés editar la venta de "${item.client}"? Se cargará en el formulario para modificarla.`,
     confirmLabel: "Sí, editar",
     onConfirm: () => editInvoice(id),
+  });
+}
+
+function editQuote(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+  closeModal();
+  openQuoteComposer();
+  const items = documentItems(item);
+  const mainLine = items[0] || createDocumentLine();
+  quoteExtraItems = items.slice(1);
+  renderQuoteFurnitureOptions(mainLine.furnitureId);
+  renderDocumentExtraItems("quote");
+  elements.quotes.id.value = item.id;
+  elements.quotes.furniture.value = mainLine.furnitureId;
+  elements.quotes.qty.value = mainLine.qty || 1;
+  elements.quotes.customFurniture.value = mainLine.customFurniture || "";
+  elements.quotes.customCost.value = mainLine.customCost || 0;
+  elements.quotes.client.value = item.client;
+  elements.quotes.phone.value = item.phone || "";
+  elements.quotes.date.value = item.date || todayValue();
+  elements.quotes.price.value = mainLine.price || 0;
+  elements.quotes.shippingRequired.value = item.shippingRequired ? "yes" : "no";
+  elements.quotes.shippingPrice.value = item.shippingPrice || 0;
+  elements.quotes.location.value = item.location || "";
+  elements.quotes.payment.value = item.payment || "";
+  elements.quotes.notes.value = item.notes || "";
+  elements.quotes.submit.textContent = "Guardar cambios";
+  elements.quotes.cancel.classList.remove("hidden");
+  updateQuoteSummary();
+  elements.quotes.client.focus();
+}
+
+function requestEditQuote(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+  confirmWithModal({
+    title: "Editar presupuesto",
+    body: `¿Querés editar el presupuesto de "${item.client}"? Se cargará en el formulario para modificarlo.`,
+    confirmLabel: "Sí, editar",
+    onConfirm: () => editQuote(id),
   });
 }
 
@@ -3544,6 +4734,82 @@ function requestDeleteInvoice(id) {
   });
 }
 
+function deleteQuote(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+  state.quotes = state.quotes.filter((entry) => entry.id !== id);
+  saveAndRefresh();
+  resetQuoteForm();
+}
+
+function requestDeleteQuote(id) {
+  const item = state.quotes.find((entry) => entry.id === id);
+  if (!item) return;
+  confirmWithModal({
+    title: "Borrar presupuesto",
+    body: `¿Seguro que querés borrar el presupuesto de "${item.client}"? Esta acción no se puede deshacer.`,
+    confirmLabel: "Sí, borrar",
+    onConfirm: () => deleteQuote(id),
+  });
+}
+
+function quoteToInvoicePayload(quote) {
+  const items = documentItems(quote);
+  return {
+    id: createId("invoice"),
+    quoteId: quote.id,
+    furnitureId: items[0]?.furnitureId || "",
+    items,
+    client: quote.client,
+    phone: quote.phone || "",
+    date: todayValue(),
+    price: documentSubtotal({ items }),
+    deposit: quoteDeposit(quote),
+    status: "Pendiente",
+    shippingRequired: Boolean(quote.shippingRequired),
+    shippingPrice: quote.shippingRequired ? Number(quote.shippingPrice || 0) : 0,
+    location: quote.shippingRequired ? cleanText(quote.location) : "",
+    payment: cleanText(quote.payment),
+    notes: cleanText(quote.notes),
+    stockDiscounted: false,
+    stockDiscountedAt: "",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function markQuoteConverted(quoteId, invoiceId) {
+  state.quotes = state.quotes.map((quote) =>
+    quote.id === quoteId
+      ? {
+          ...quote,
+          convertedInvoiceId: invoiceId,
+          convertedAt: new Date().toISOString(),
+        }
+      : quote,
+  );
+}
+
+function convertQuoteToInvoice(id) {
+  const quote = state.quotes.find((entry) => entry.id === id);
+  if (!quote || quote.convertedInvoiceId) return;
+  const payload = quoteToInvoicePayload(quote);
+
+  requestInvoiceStockDiscount(payload, {
+    onSaved: (invoice) => markQuoteConverted(id, invoice.id),
+  });
+}
+
+function requestConvertQuote(id) {
+  const quote = state.quotes.find((entry) => entry.id === id);
+  if (!quote || quote.convertedInvoiceId) return;
+  confirmWithModal({
+    title: "Pasar presupuesto a venta",
+    body: `¿Querés crear una venta para "${quote.client}" con los mismos muebles y valores del presupuesto?`,
+    confirmLabel: "Pasar a venta",
+    onConfirm: () => convertQuoteToInvoice(id),
+  });
+}
+
 function resetSupplyForm() {
   elements.supplies.form.reset();
   elements.supplies.id.value = "";
@@ -3564,26 +4830,51 @@ function resetWoodForm() {
 function resetFurnitureForm() {
   elements.furniture.form.reset();
   elements.furniture.id.value = "";
+  elements.furniture.kind.value = "own";
+  elements.furniture.thirdPartyCost.value = 0;
   currentFurniturePhoto = "";
   updateFurniturePhotoPreview();
   furnitureDraft = createFurnitureDraft();
   elements.furniture.submit.textContent = "Guardar mueble";
   elements.furniture.cancel.classList.add("hidden");
   renderFurnitureBuilder();
+  updateFurnitureMode();
 }
 
 function resetInvoiceForm() {
   elements.invoices.form.reset();
   elements.invoices.id.value = "";
+  elements.invoices.qty.value = 1;
   elements.invoices.date.value = todayValue();
+  elements.invoices.price.value = 0;
   elements.invoices.deposit.value = 0;
   elements.invoices.status.value = "Pendiente";
   elements.invoices.shippingRequired.value = "no";
   elements.invoices.shippingPrice.value = 0;
+  invoiceExtraItems = [];
+  renderDocumentExtraItems("invoice");
   elements.invoices.submit.textContent = "Guardar venta";
   elements.invoices.cancel.classList.add("hidden");
   renderInvoiceFurnitureOptions();
   updateInvoiceSummary();
+}
+
+function resetQuoteForm() {
+  elements.quotes.form.reset();
+  elements.quotes.id.value = "";
+  elements.quotes.date.value = todayValue();
+  elements.quotes.qty.value = 1;
+  elements.quotes.customFurniture.value = "";
+  elements.quotes.customCost.value = 0;
+  elements.quotes.price.value = 0;
+  elements.quotes.shippingRequired.value = "no";
+  elements.quotes.shippingPrice.value = 0;
+  quoteExtraItems = [];
+  renderDocumentExtraItems("quote");
+  elements.quotes.submit.textContent = "Guardar presupuesto";
+  elements.quotes.cancel.classList.add("hidden");
+  renderQuoteFurnitureOptions();
+  updateQuoteSummary();
 }
 
 function openFurnitureComposer() {
@@ -3635,6 +4926,33 @@ function toggleInvoiceComposer() {
   } else {
     resetInvoiceForm();
     closeInvoiceComposer();
+  }
+}
+
+function openQuoteComposer() {
+  elements.quotes.form.classList.remove("hidden");
+  elements.quotes.builder.classList.remove("hidden");
+  elements.quotes.cancel.classList.remove("hidden");
+  elements.quotes.showForm.textContent = "Cerrar";
+  renderQuoteFurnitureOptions();
+  updateQuoteSummary();
+}
+
+function closeQuoteComposer() {
+  elements.quotes.form.classList.add("hidden");
+  elements.quotes.builder.classList.add("hidden");
+  elements.quotes.showForm.textContent = "Agregar presupuesto";
+}
+
+function toggleQuoteComposer() {
+  const isClosed = elements.quotes.form.classList.contains("hidden");
+  if (isClosed) {
+    resetQuoteForm();
+    openQuoteComposer();
+    elements.quotes.client.focus();
+  } else {
+    resetQuoteForm();
+    closeQuoteComposer();
   }
 }
 
@@ -3695,7 +5013,7 @@ function clearCollection(collectionName, label) {
 }
 
 function loadSampleData() {
-  if (state.supplies.length || state.wood.length || state.furniture.length || state.invoices.length) {
+  if (state.supplies.length || state.wood.length || state.furniture.length || state.invoices.length || state.quotes.length) {
     const replace = confirm("¿Reemplazar los datos actuales por el ejemplo?");
     if (!replace) return;
   }
@@ -3703,7 +5021,10 @@ function loadSampleData() {
   state.wood = structuredClone(sampleData.wood);
   state.furniture = structuredClone(sampleData.furniture);
   state.invoices = structuredClone(sampleData.invoices);
+  state.quotes = structuredClone(sampleData.quotes);
   state.orders = structuredClone(sampleData.orders);
+  state.tasks = structuredClone(sampleData.tasks);
+  state.production = structuredClone(sampleData.production);
   state.settings = structuredClone(sampleData.settings);
   currentOrderId = "";
   orderDraft = [];
@@ -3725,6 +5046,11 @@ function handleTableClick(event) {
   const editInvoiceButton = event.target.closest("[data-edit-invoice]");
   const deleteInvoiceButton = event.target.closest("[data-delete-invoice]");
   const invoiceRow = event.target.closest("[data-view-invoice]");
+  const printQuoteButton = event.target.closest("[data-print-quote]");
+  const convertQuoteButton = event.target.closest("[data-convert-quote]");
+  const editQuoteButton = event.target.closest("[data-edit-quote]");
+  const deleteQuoteButton = event.target.closest("[data-delete-quote]");
+  const quoteRow = event.target.closest("[data-view-quote]");
 
   if (editSupplyButton) {
     editSupply(editSupplyButton.dataset.editSupply);
@@ -3766,17 +5092,46 @@ function handleTableClick(event) {
     requestDeleteInvoice(deleteInvoiceButton.dataset.deleteInvoice);
     return;
   }
+  if (printQuoteButton) {
+    printQuote(printQuoteButton.dataset.printQuote);
+    return;
+  }
+  if (convertQuoteButton) {
+    requestConvertQuote(convertQuoteButton.dataset.convertQuote);
+    return;
+  }
+  if (editQuoteButton) {
+    requestEditQuote(editQuoteButton.dataset.editQuote);
+    return;
+  }
+  if (deleteQuoteButton) {
+    requestDeleteQuote(deleteQuoteButton.dataset.deleteQuote);
+    return;
+  }
   if (furnitureRow) showFurnitureDetail(furnitureRow.dataset.viewFurniture);
   if (invoiceRow) showInvoiceDetail(invoiceRow.dataset.viewInvoice);
+  if (quoteRow) showQuoteDetail(quoteRow.dataset.viewQuote);
 }
 
 function handleModalBodyClick(event) {
   const printInvoiceButton = event.target.closest("[data-print-invoice]");
+  const printQuoteButton = event.target.closest("[data-print-quote]");
+  const convertQuoteButton = event.target.closest("[data-convert-quote]");
   const discountInvoiceStockButton = event.target.closest("[data-discount-invoice-stock]");
   const cutsToggle = event.target.closest("[data-toggle-cuts]");
 
   if (printInvoiceButton) {
     printInvoice(printInvoiceButton.dataset.printInvoice);
+    return;
+  }
+
+  if (printQuoteButton) {
+    printQuote(printQuoteButton.dataset.printQuote);
+    return;
+  }
+
+  if (convertQuoteButton) {
+    requestConvertQuote(convertQuoteButton.dataset.convertQuote);
     return;
   }
 
@@ -3868,6 +5223,40 @@ function handleSavedOrderTableClick(event) {
   }
 }
 
+function handleProductionBoardClick(event) {
+  const completeButton = event.target.closest("[data-complete-production]");
+  const deleteButton = event.target.closest("[data-delete-production]");
+
+  if (completeButton) {
+    requestCompleteProduction(completeButton.dataset.completeProduction);
+    return;
+  }
+
+  if (deleteButton) {
+    requestDeleteProduction(deleteButton.dataset.deleteProduction);
+  }
+}
+
+function handleTaskBoardClick(event) {
+  const toggleButton = event.target.closest("[data-toggle-task]");
+  const editButton = event.target.closest("[data-edit-task]");
+  const deleteButton = event.target.closest("[data-delete-task]");
+
+  if (toggleButton) {
+    toggleTaskStatus(toggleButton.dataset.toggleTask);
+    return;
+  }
+
+  if (editButton) {
+    editTask(editButton.dataset.editTask);
+    return;
+  }
+
+  if (deleteButton) {
+    requestDeleteTask(deleteButton.dataset.deleteTask);
+  }
+}
+
 function bindEvents() {
   elements.auth.form.addEventListener("submit", handleLoginSubmit);
   elements.auth.passwordToggle.addEventListener("click", togglePasswordVisibility);
@@ -3897,6 +5286,8 @@ function bindEvents() {
   });
   elements.furniture.photo.addEventListener("change", handleFurniturePhotoChange);
   elements.furniture.removePhoto.addEventListener("click", removeFurniturePhoto);
+  elements.furniture.kind.addEventListener("change", updateFurnitureMode);
+  elements.furniture.thirdPartyCost.addEventListener("input", updateFurnitureTotal);
   elements.furniture.showForm.addEventListener("click", toggleFurnitureComposer);
   elements.furniture.search.addEventListener("input", renderFurniture);
   elements.furniture.table.addEventListener("click", handleTableClick);
@@ -3918,12 +5309,38 @@ function bindEvents() {
   elements.invoices.search.addEventListener("input", renderInvoices);
   elements.invoices.table.addEventListener("click", handleTableClick);
   elements.invoices.furniture.addEventListener("change", handleInvoiceChange);
+  elements.invoices.qty.addEventListener("input", handleInvoiceChange);
   elements.invoices.price.addEventListener("input", handleInvoiceChange);
   elements.invoices.deposit.addEventListener("input", handleInvoiceChange);
   elements.invoices.status.addEventListener("change", handleInvoiceChange);
   elements.invoices.shippingRequired.addEventListener("change", handleInvoiceChange);
   elements.invoices.shippingPrice.addEventListener("input", handleInvoiceChange);
   elements.invoices.location.addEventListener("input", handleInvoiceChange);
+  elements.invoices.addItem.addEventListener("click", () => addDocumentExtraItem("invoice"));
+  elements.invoices.itemLines.addEventListener("input", () => handleDocumentExtraItemChange("invoice"));
+  elements.invoices.itemLines.addEventListener("change", () => handleDocumentExtraItemChange("invoice"));
+  elements.invoices.itemLines.addEventListener("click", handleDocumentExtraItemClick);
+
+  elements.quotes.form.addEventListener("submit", handleQuoteSubmit);
+  elements.quotes.cancel.addEventListener("click", () => {
+    resetQuoteForm();
+    closeQuoteComposer();
+  });
+  elements.quotes.showForm.addEventListener("click", toggleQuoteComposer);
+  elements.quotes.search.addEventListener("input", renderQuotes);
+  elements.quotes.table.addEventListener("click", handleTableClick);
+  elements.quotes.furniture.addEventListener("change", handleQuoteChange);
+  elements.quotes.qty.addEventListener("input", handleQuoteChange);
+  elements.quotes.customFurniture.addEventListener("input", handleQuoteChange);
+  elements.quotes.customCost.addEventListener("input", handleQuoteChange);
+  elements.quotes.price.addEventListener("input", handleQuoteChange);
+  elements.quotes.shippingRequired.addEventListener("change", handleQuoteChange);
+  elements.quotes.shippingPrice.addEventListener("input", handleQuoteChange);
+  elements.quotes.location.addEventListener("input", handleQuoteChange);
+  elements.quotes.addItem.addEventListener("click", () => addDocumentExtraItem("quote"));
+  elements.quotes.itemLines.addEventListener("input", () => handleDocumentExtraItemChange("quote"));
+  elements.quotes.itemLines.addEventListener("change", () => handleDocumentExtraItemChange("quote"));
+  elements.quotes.itemLines.addEventListener("click", handleDocumentExtraItemClick);
 
   elements.orders.form.addEventListener("submit", handleOrderSubmit);
   elements.orders.save.addEventListener("click", saveCurrentOrder);
@@ -3931,6 +5348,15 @@ function bindEvents() {
   elements.orders.export.addEventListener("click", () => exportOrderExcel());
   elements.orders.table.addEventListener("click", handleOrderTableClick);
   elements.orders.savedTable.addEventListener("click", handleSavedOrderTableClick);
+
+  elements.production.form.addEventListener("submit", handleProductionSubmit);
+  elements.production.search.addEventListener("input", renderProduction);
+  elements.production.board.addEventListener("click", handleProductionBoardClick);
+
+  elements.tasks.form.addEventListener("submit", handleTaskSubmit);
+  elements.tasks.cancel.addEventListener("click", resetTaskForm);
+  elements.tasks.search.addEventListener("input", renderTasks);
+  elements.tasks.board.addEventListener("click", handleTaskBoardClick);
 
   elements.stock.supplySearch.addEventListener("input", renderStockSupplies);
   elements.stock.woodSearch.addEventListener("input", renderStockWood);
