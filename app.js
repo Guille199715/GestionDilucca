@@ -3,7 +3,17 @@ const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
 const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "orders"];
 const FIREBASE_COLLECTIONS = [...DATA_COLLECTIONS, "settings"];
-const DEFAULT_SETTINGS = [{ id: "pricing", suggestedMarkup: 80 }];
+const DEFAULT_BUSINESS_PROFILE = {
+  id: "business",
+  name: "Muebles DiLucca",
+  activity: "Muebles a medida",
+  phone: "",
+  email: "",
+  address: "",
+  taxId: "",
+  instagram: "",
+};
+const DEFAULT_SETTINGS = [{ id: "pricing", suggestedMarkup: 80 }, DEFAULT_BUSINESS_PROFILE];
 const INVOICE_STATUSES = ["Pendiente", "Entregado", "Cancelado"];
 
 const sampleData = {
@@ -288,6 +298,15 @@ const elements = {
   },
   settings: {
     suggestedMargin: $("#suggested-margin"),
+    businessForm: $("#business-settings-form"),
+    businessName: $("#business-name"),
+    businessActivity: $("#business-activity"),
+    businessPhone: $("#business-phone"),
+    businessEmail: $("#business-email"),
+    businessAddress: $("#business-address"),
+    businessTaxId: $("#business-tax-id"),
+    businessInstagram: $("#business-instagram"),
+    businessMessage: $("#business-settings-message"),
   },
   modal: {
     root: $("#app-modal"),
@@ -316,12 +335,25 @@ function defaultSettings() {
 
 function normalizeSettings(settings = []) {
   const pricing = Array.isArray(settings) ? settings.find((item) => item?.id === "pricing") : null;
+  const business = Array.isArray(settings) ? settings.find((item) => item?.id === "business") : null;
   const suggestedMarkup = Number(pricing?.suggestedMarkup);
 
   return [
     {
       id: "pricing",
       suggestedMarkup: Number.isFinite(suggestedMarkup) ? Math.max(0, suggestedMarkup) : 80,
+    },
+    {
+      ...DEFAULT_BUSINESS_PROFILE,
+      ...business,
+      id: "business",
+      name: cleanText(business?.name) || DEFAULT_BUSINESS_PROFILE.name,
+      activity: cleanText(business?.activity) || DEFAULT_BUSINESS_PROFILE.activity,
+      phone: cleanText(business?.phone),
+      email: cleanText(business?.email),
+      address: cleanText(business?.address),
+      taxId: cleanText(business?.taxId),
+      instagram: cleanText(business?.instagram),
     },
   ];
 }
@@ -542,8 +574,34 @@ function furnitureTotal(item) {
   return furnitureSupplyTotal(item) + furnitureWoodTotal(item);
 }
 
+function settingsById(id) {
+  return normalizeSettings(state.settings).find((item) => item.id === id);
+}
+
+function upsertSetting(setting) {
+  const normalized = normalizeSettings(state.settings);
+  const exists = normalized.some((item) => item.id === setting.id);
+  state.settings = exists
+    ? normalized.map((item) => (item.id === setting.id ? { ...item, ...setting } : item))
+    : [...normalized, setting];
+}
+
 function pricingSettings() {
-  return normalizeSettings(state.settings)[0];
+  return settingsById("pricing");
+}
+
+function businessProfile() {
+  return settingsById("business");
+}
+
+function businessProfileRows(profile = businessProfile()) {
+  return [
+    { label: "WhatsApp", value: profile.phone },
+    { label: "Email", value: profile.email },
+    { label: "Dirección", value: profile.address },
+    { label: "CUIT", value: profile.taxId },
+    { label: "Instagram", value: profile.instagram },
+  ].filter((row) => cleanText(row.value));
 }
 
 function suggestedMarkup() {
@@ -1322,9 +1380,24 @@ function renderLowStockSupplies(rows = lowStockSupplies()) {
 }
 
 function renderSettings() {
-  if (!elements.settings.suggestedMargin) return;
-  if (document.activeElement === elements.settings.suggestedMargin) return;
-  elements.settings.suggestedMargin.value = String(suggestedMarkup());
+  if (elements.settings.suggestedMargin && document.activeElement !== elements.settings.suggestedMargin) {
+    elements.settings.suggestedMargin.value = String(suggestedMarkup());
+  }
+
+  const profile = businessProfile();
+  const fields = [
+    [elements.settings.businessName, profile.name],
+    [elements.settings.businessActivity, profile.activity],
+    [elements.settings.businessPhone, profile.phone],
+    [elements.settings.businessEmail, profile.email],
+    [elements.settings.businessAddress, profile.address],
+    [elements.settings.businessTaxId, profile.taxId],
+    [elements.settings.businessInstagram, profile.instagram],
+  ];
+
+  fields.forEach(([field, value]) => {
+    if (field && document.activeElement !== field) field.value = value || "";
+  });
 }
 
 function renderStock() {
@@ -2588,6 +2661,10 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
   const shippingCost = invoiceShippingCost(invoice);
   const total = invoiceTotal(invoice);
   const notes = cleanText(invoice.notes);
+  const profile = businessProfile();
+  const businessRowsHtml = businessProfileRows(profile)
+    .map((row) => `<span><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</span>`)
+    .join("");
   const shippingText = invoice.shippingRequired
     ? escapeHtml(invoice.location || "Envío sin ubicación")
     : "Retira / sin envío";
@@ -2642,17 +2719,24 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
 
       .invoice-header {
         display: grid;
-        grid-template-columns: 230px 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
         gap: 24px;
-        align-items: center;
+        align-items: start;
         padding-bottom: 20px;
         border-bottom: 3px solid #d9aa45;
+      }
+
+      .company-header {
+        display: grid;
+        grid-template-columns: 210px minmax(0, 1fr);
+        gap: 16px;
+        align-items: center;
       }
 
       .logo-frame {
         display: grid;
         place-items: center;
-        padding: 10px;
+        padding: 8px;
         border-radius: 8px;
         background: #000000;
       }
@@ -2660,8 +2744,34 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
       .logo-frame img {
         display: block;
         width: 100%;
-        max-width: 210px;
+        max-width: 190px;
         height: auto;
+      }
+
+      .company-copy h2 {
+        margin: 0;
+        color: #1f2933;
+        font-size: 24px;
+        line-height: 1.15;
+      }
+
+      .company-copy p {
+        margin: 5px 0 0;
+        color: #667085;
+        font-size: 13px;
+      }
+
+      .company-data {
+        display: grid;
+        gap: 4px;
+        margin-top: 10px;
+        color: #475467;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .company-data strong {
+        color: #1f2933;
       }
 
       .invoice-heading {
@@ -2796,8 +2906,15 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
     </div>
     <main class="invoice-sheet">
       <header class="invoice-header">
-        <div class="logo-frame">
-          <img src="${escapeHtml(logoUrl)}" alt="Muebles DiLucca" />
+        <div class="company-header">
+          <div class="logo-frame">
+            <img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(profile.name)}" />
+          </div>
+          <div class="company-copy">
+            <h2>${escapeHtml(profile.name)}</h2>
+            <p>${escapeHtml(profile.activity)}</p>
+            ${businessRowsHtml ? `<div class="company-data">${businessRowsHtml}</div>` : ""}
+          </div>
         </div>
         <div class="invoice-heading">
           <h1>Comprobante de venta</h1>
@@ -2818,10 +2935,6 @@ function buildInvoicePrintHtml(invoice, logoUrl) {
         <div class="info-card">
           <span>Forma de pago</span>
           <strong>${escapeHtml(invoice.payment || "-")}</strong>
-        </div>
-        <div class="info-card">
-          <span>Estado</span>
-          <strong>${escapeHtml(invoiceStatus(invoice))}</strong>
         </div>
         <div class="info-card">
           <span>Envío</span>
@@ -3197,13 +3310,33 @@ function saveAndRefresh() {
 function handleSuggestedMarginChange() {
   const current = suggestedMarkup();
   const nextValue = Math.max(0, readNumber(elements.settings.suggestedMargin, current));
-  state.settings = [
-    {
-      ...pricingSettings(),
-      suggestedMarkup: nextValue,
-    },
-  ];
+  upsertSetting({
+    ...pricingSettings(),
+    suggestedMarkup: nextValue,
+  });
   saveAndRefresh();
+}
+
+function handleBusinessSettingsSubmit(event) {
+  event.preventDefault();
+  upsertSetting({
+    id: "business",
+    name: cleanText(elements.settings.businessName.value) || DEFAULT_BUSINESS_PROFILE.name,
+    activity: cleanText(elements.settings.businessActivity.value) || DEFAULT_BUSINESS_PROFILE.activity,
+    phone: cleanText(elements.settings.businessPhone.value),
+    email: cleanText(elements.settings.businessEmail.value),
+    address: cleanText(elements.settings.businessAddress.value),
+    taxId: cleanText(elements.settings.businessTaxId.value),
+    instagram: cleanText(elements.settings.businessInstagram.value),
+  });
+  saveAndRefresh();
+
+  if (elements.settings.businessMessage) {
+    elements.settings.businessMessage.textContent = "Datos guardados.";
+    setTimeout(() => {
+      if (elements.settings.businessMessage) elements.settings.businessMessage.textContent = "";
+    }, 2400);
+  }
 }
 
 function editSupply(id) {
@@ -3807,7 +3940,12 @@ function bindEvents() {
   elements.stock.woodList.addEventListener("change", handleStockChange);
   elements.stock.furnitureList.addEventListener("change", handleStockChange);
   elements.metrics.period.addEventListener("change", renderDashboard);
-  elements.settings.suggestedMargin.addEventListener("change", handleSuggestedMarginChange);
+  if (elements.settings.suggestedMargin) {
+    elements.settings.suggestedMargin.addEventListener("change", handleSuggestedMarginChange);
+  }
+  if (elements.settings.businessForm) {
+    elements.settings.businessForm.addEventListener("submit", handleBusinessSettingsSubmit);
+  }
 
   elements.modal.close.addEventListener("click", closeModal);
   elements.modal.body.addEventListener("click", handleModalBodyClick);

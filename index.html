@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestión de Mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260602-sale-status" />
+    <link rel="stylesheet" href="styles.css?v=20260604-business-pdf" />
   </head>
   <body class="auth-loading">
     <div class="app-shell">
@@ -422,6 +422,44 @@
             </div>
           </div>
 
+          <details class="panel business-settings-panel">
+            <summary>Datos de la mueblería para PDF</summary>
+            <form class="entry-form business-settings-form" id="business-settings-form" autocomplete="off">
+              <label>
+                <span>Nombre comercial</span>
+                <input id="business-name" type="text" placeholder="Muebles DiLucca" />
+              </label>
+              <label>
+                <span>Rubro</span>
+                <input id="business-activity" type="text" placeholder="Muebles a medida" />
+              </label>
+              <label>
+                <span>WhatsApp</span>
+                <input id="business-phone" type="text" placeholder="Ej: +54 9 ..." />
+              </label>
+              <label>
+                <span>Email</span>
+                <input id="business-email" type="email" placeholder="Ej: ventas@..." />
+              </label>
+              <label>
+                <span>Dirección</span>
+                <input id="business-address" type="text" placeholder="Localidad o dirección" />
+              </label>
+              <label>
+                <span>CUIT</span>
+                <input id="business-tax-id" type="text" placeholder="Opcional" />
+              </label>
+              <label>
+                <span>Instagram</span>
+                <input id="business-instagram" type="text" placeholder="@usuario" />
+              </label>
+              <div class="form-actions business-settings-actions">
+                <small class="form-message" id="business-settings-message"></small>
+                <button class="primary-button" type="submit">Guardar datos</button>
+              </div>
+            </form>
+          </details>
+
           <form class="entry-form invoice-form hidden" id="invoice-form" autocomplete="off">
             <input type="hidden" id="invoice-id" />
             <label>
@@ -682,6 +720,6 @@
     </div>
 
     <script src="firebase-config.js?v=20260602-invoice-stock-later"></script>
-    <script src="app.js?v=20260602-sale-status"></script>
+    <script src="app.js?v=20260604-business-pdf"></script>
   </body>
 </html>

@@ -598,6 +598,62 @@ select:focus {
   font-size: 1rem;
 }
 
+.business-settings-panel {
+  overflow: hidden;
+}
+
+.business-settings-panel summary {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.business-settings-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.business-settings-panel summary::after {
+  content: "+";
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--brand);
+}
+
+.business-settings-panel[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.business-settings-panel[open] summary::after {
+  content: "-";
+}
+
+.business-settings-form {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.business-settings-actions {
+  align-items: center;
+}
+
+.form-message {
+  margin-right: auto;
+  color: var(--brand);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .panel-title span {
   color: var(--muted);
   font-size: 0.9rem;
