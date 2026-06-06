@@ -15,14 +15,18 @@ const DEFAULT_BUSINESS_PROFILE = {
 };
 const DEFAULT_SETTINGS = [{ id: "pricing", suggestedMarkup: 80 }, DEFAULT_BUSINESS_PROFILE];
 const INVOICE_STATUSES = ["Pendiente", "Entregado", "Cancelado"];
-const QUOTE_CONDITIONS = [
-  "El presente presupuesto tiene una validez de 7 días corridos desde su fecha de emisión.",
+const QUOTE_VALIDITY_CONDITION = "El presente presupuesto tiene una validez de 7 días corridos desde su fecha de emisión.";
+const STOCK_AVAILABILITY_CONDITION =
+  "Los productos de stock o reventa quedan sujetos a disponibilidad al momento de confirmar la compra.";
+const CUSTOM_FURNITURE_CONDITIONS = [
   "Para comenzar el trabajo se toma una seña del 50%.",
   "El saldo se abona al momento de la entrega.",
   "La entrega se realiza en 15 días.",
   "El precio corresponde al diseño y medidas acordadas.",
   "Cualquier modificación en diseño, medidas o distribución puede variar el valor final.",
 ];
+const CUSTOM_QUOTE_CONDITIONS = [QUOTE_VALIDITY_CONDITION, ...CUSTOM_FURNITURE_CONDITIONS];
+const STOCK_QUOTE_CONDITIONS = [QUOTE_VALIDITY_CONDITION, STOCK_AVAILABILITY_CONDITION];
 
 const sampleData = {
   supplies: [
@@ -835,6 +839,18 @@ function documentSubtotal(document = {}) {
 
 function documentCostTotal(document = {}) {
   return documentItems(document).reduce((sum, line) => sum + documentLineCostTotal(line), 0);
+}
+
+function documentHasCustomItems(document = {}) {
+  return documentItems(document).some((line) => cleanText(line.customFurniture));
+}
+
+function quotePdfConditions(quote = {}) {
+  return documentHasCustomItems(quote) ? CUSTOM_QUOTE_CONDITIONS : STOCK_QUOTE_CONDITIONS;
+}
+
+function invoicePdfConditions(invoice = {}) {
+  return invoice.fromCustomQuote || documentHasCustomItems(invoice) ? CUSTOM_FURNITURE_CONDITIONS : [];
 }
 
 function invoiceFurnitureCost(invoice) {
@@ -2286,7 +2302,6 @@ async function initFirebaseSync() {
     updateSyncStatus("Firebase sin conexión", "error");
   }
 }
-
 function stopCloudListeners() {
   cloudSync.unsubscribes.forEach((unsubscribe) => unsubscribe());
   cloudSync.unsubscribes = [];
@@ -2371,7 +2386,6 @@ function handleCloudSnapshot(collectionName, snapshot) {
   renderAll();
   updateSyncStatus("Firebase conectado", "online");
 }
-
 function scheduleCloudSave() {
   if (!cloudSync.enabled || !cloudSync.user) return;
 
@@ -3479,6 +3493,7 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
   const balanceAmount = options.balanceAmount ? options.balanceAmount(invoice) : invoiceBalance(invoice);
   const footerText = options.footerText || "Gracias por confiar en Muebles DiLucca.";
   const conditions = Array.isArray(options.conditions) ? options.conditions : [];
+  const showDepositRows = options.showDepositRows !== false;
   const notes = cleanText(invoice.notes);
   const profile = businessProfile();
   const businessRowsHtml = businessProfileRows(profile)
@@ -3833,14 +3848,18 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
           <span>Subtotal</span>
           <strong>${formatCurrency.format(invoicePrice)}</strong>
         </div>
-        <div class="total-row">
-          <span>${escapeHtml(depositLabel)}</span>
-          <strong>${formatCurrency.format(depositAmount)}</strong>
-        </div>
-        <div class="total-row">
-          <span>Saldo</span>
-          <strong>${formatCurrency.format(balanceAmount)}</strong>
-        </div>
+        ${
+          showDepositRows
+            ? `<div class="total-row">
+                <span>${escapeHtml(depositLabel)}</span>
+                <strong>${formatCurrency.format(depositAmount)}</strong>
+              </div>
+              <div class="total-row">
+                <span>Saldo</span>
+                <strong>${formatCurrency.format(balanceAmount)}</strong>
+              </div>`
+            : ""
+        }
         <div class="total-row">
           <span>Envío</span>
           <strong>${invoice.shippingRequired ? formatCurrency.format(shippingCost) : "No"}</strong>
@@ -3888,7 +3907,11 @@ function printInvoice(id) {
   }
 
   popup.document.open();
-  popup.document.write(buildInvoicePrintHtml(item, logoUrl));
+  popup.document.write(
+    buildInvoicePrintHtml(item, logoUrl, {
+      conditions: invoicePdfConditions(item),
+    }),
+  );
   popup.document.close();
   popup.focus();
 }
@@ -3896,6 +3919,7 @@ function printInvoice(id) {
 function printQuote(id) {
   const item = state.quotes.find((entry) => entry.id === id);
   if (!item) return;
+  const isCustomQuote = documentHasCustomItems(item);
 
   const logoUrl = new URL(INVOICE_LOGO_PATH, window.location.href).href;
   const popup = window.open("", "_blank", "width=900,height=1100");
@@ -3915,8 +3939,11 @@ function printQuote(id) {
       depositLabel: "Seña 50%",
       depositAmount: quoteDeposit,
       balanceAmount: quoteBalance,
-      footerText: "Presupuesto válido según diseño y medidas acordadas.",
-      conditions: QUOTE_CONDITIONS,
+      showDepositRows: isCustomQuote,
+      footerText: isCustomQuote
+        ? "Presupuesto válido según diseño y medidas acordadas."
+        : "Presupuesto sujeto a disponibilidad al momento de confirmar la compra.",
+      conditions: quotePdfConditions(item),
     }),
   );
   popup.document.close();
@@ -4119,6 +4146,7 @@ function handleInvoiceSubmit(event) {
   const payload = {
     id: id || createId("invoice"),
     quoteId: existingInvoice?.quoteId || "",
+    fromCustomQuote: Boolean(existingInvoice?.fromCustomQuote),
     furnitureId: items[0]?.furnitureId || "",
     items,
     client: cleanText(elements.invoices.client.value),
@@ -4758,6 +4786,7 @@ function quoteToInvoicePayload(quote) {
   return {
     id: createId("invoice"),
     quoteId: quote.id,
+    fromCustomQuote: documentHasCustomItems(quote),
     furnitureId: items[0]?.furnitureId || "",
     items,
     client: quote.client,

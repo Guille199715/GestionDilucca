@@ -1695,9 +1695,26 @@ tbody tr:hover td {
 
 .invoice-card-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
+}
+
+.invoice-card-actions .table-action {
+  flex: 0 1 auto;
+}
+
+.quote-card .invoice-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quote-card .invoice-card-actions .table-action {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
 }
 
 .builder-grid {
