@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DI LUCCA | Gestión de mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260607-dilucca-dark-gallery" />
+    <link rel="stylesheet" href="styles.css?v=20260608-user-detail-email" />
   </head>
   <body class="auth-loading">
     <div class="app-shell">
@@ -38,6 +38,42 @@
           <button class="nav-tab" type="button" data-view="production">Producción</button>
           <button class="nav-tab" type="button" data-view="tasks">Tareas</button>
         </nav>
+
+        <details class="user-profile-panel hidden" id="user-profile-panel">
+          <summary>
+            <span class="presence-dot" id="current-user-dot" aria-hidden="true"></span>
+            <span class="user-profile-summary">
+              <strong id="current-user-name">Mi perfil</strong>
+              <small id="current-user-area">Sin área cargada</small>
+            </span>
+          </summary>
+          <form class="user-profile-form" id="user-profile-form" autocomplete="off">
+            <label>
+              <span>Nombre</span>
+              <input id="user-profile-name" type="text" placeholder="Ej: Guillermo" />
+            </label>
+            <label>
+              <span>Teléfono</span>
+              <input id="user-profile-phone" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              <span>Correo</span>
+              <input id="user-profile-email" type="email" readonly />
+            </label>
+            <label>
+              <span>Área de trabajo</span>
+              <input id="user-profile-area" type="text" placeholder="Ej: Ventas, taller..." />
+            </label>
+            <button class="primary-button" type="submit">Guardar perfil</button>
+            <small class="form-message" id="user-profile-message"></small>
+          </form>
+          <div class="online-users">
+            <span>Usuarios del sistema</span>
+            <div class="online-users-list" id="online-users-list"></div>
+          </div>
+        </details>
+
+        <div class="sidebar-users hidden" id="sidebar-users-list"></div>
 
         <button class="logout-button hidden" type="button" id="logout-button">Cerrar sesión</button>
       </aside>
@@ -116,6 +152,14 @@
               <span id="low-stock-count-label">0 ítems</span>
             </div>
             <div class="compact-list" id="low-stock-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h3>Usuarios del sistema</h3>
+              <span id="dashboard-users-count-label">0 usuarios</span>
+            </div>
+            <div class="dashboard-users-list" id="dashboard-users-list"></div>
           </section>
         </section>
 
@@ -994,6 +1038,6 @@
     </div>
 
     <script src="firebase-config.js?v=20260602-invoice-stock-later"></script>
-    <script src="app.js?v=20260607-custom-deposit"></script>
+    <script src="app.js?v=20260608-user-detail-email"></script>
   </body>
 </html>

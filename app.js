@@ -3,6 +3,9 @@ const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
 const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "quotes", "orders", "tasks", "production"];
 const FIREBASE_COLLECTIONS = [...DATA_COLLECTIONS, "settings"];
+const USER_PROFILES_COLLECTION = "profiles";
+const ONLINE_THRESHOLD_MS = 1000 * 60 * 2;
+const PRESENCE_HEARTBEAT_MS = 1000 * 30;
 const DEFAULT_BUSINESS_PROFILE = {
   id: "business",
   name: "Muebles DiLucca",
@@ -130,6 +133,7 @@ const sampleData = {
   orders: [],
   tasks: [],
   production: [],
+  profiles: [],
   settings: structuredClone(DEFAULT_SETTINGS),
 };
 
@@ -145,6 +149,7 @@ let storageWarningShown = false;
 let cloudSaveTimer = null;
 let activeStockPanel = "supplies";
 let modalCancelAction = null;
+let presenceHeartbeatTimer = null;
 
 const cloudSync = {
   enabled: false,
@@ -179,6 +184,20 @@ const elements = {
   menuToggle: $("#menu-toggle"),
   logout: $("#logout-button"),
   syncStatus: $("#sync-status"),
+  userProfile: {
+    panel: $("#user-profile-panel"),
+    form: $("#user-profile-form"),
+    name: $("#user-profile-name"),
+    email: $("#user-profile-email"),
+    phone: $("#user-profile-phone"),
+    area: $("#user-profile-area"),
+    message: $("#user-profile-message"),
+    currentName: $("#current-user-name"),
+    currentArea: $("#current-user-area"),
+    currentDot: $("#current-user-dot"),
+    onlineList: $("#online-users-list"),
+    sidebarList: $("#sidebar-users-list"),
+  },
   views: $$(".view"),
   tabs: $$(".nav-tab"),
   supplies: {
@@ -383,6 +402,8 @@ const elements = {
     accumulatedStockCost: $("#metric-accumulated-stock-cost"),
     lowStockCountLabel: $("#low-stock-count-label"),
     lowStockList: $("#low-stock-list"),
+    usersCountLabel: $("#dashboard-users-count-label"),
+    usersList: $("#dashboard-users-list"),
   },
   settings: {
     suggestedMargin: $("#suggested-margin"),
@@ -446,6 +467,25 @@ function normalizeSettings(settings = []) {
   ];
 }
 
+function normalizeUserProfile(profile = {}) {
+  return {
+    id: cleanText(profile.id),
+    email: cleanText(profile.email),
+    name: cleanText(profile.name),
+    phone: cleanText(profile.phone),
+    area: cleanText(profile.area),
+    online: Boolean(profile.online),
+    lastSeen: cleanText(profile.lastSeen),
+    updatedAt: cleanText(profile.updatedAt),
+  };
+}
+
+function normalizeUserProfiles(profiles = []) {
+  return Array.isArray(profiles)
+    ? profiles.map(normalizeUserProfile).filter((profile) => profile.id || profile.email)
+    : [];
+}
+
 function emptyState() {
   return {
     supplies: [],
@@ -456,6 +496,7 @@ function emptyState() {
     orders: [],
     tasks: [],
     production: [],
+    profiles: [],
     settings: defaultSettings(),
   };
 }
@@ -470,6 +511,7 @@ function normalizeState(source = emptyState()) {
     orders: Array.isArray(source.orders) ? source.orders : [],
     tasks: Array.isArray(source.tasks) ? source.tasks : [],
     production: Array.isArray(source.production) ? source.production : [],
+    profiles: normalizeUserProfiles(source.profiles),
     settings: normalizeSettings(source.settings),
   };
 }
@@ -511,6 +553,173 @@ function updateSyncStatus(message, status = "local") {
 function setAuthScreen(mode) {
   document.body.classList.toggle("auth-loading", mode === "loading");
   document.body.classList.toggle("auth-required", mode === "required");
+}
+
+function currentUserId() {
+  return cleanText(cloudSync.user?.uid);
+}
+
+function currentUserEmail() {
+  return cleanText(cloudSync.user?.email);
+}
+
+function fallbackUserName(email = currentUserEmail()) {
+  return cleanText(email.split("@")[0]) || "Usuario";
+}
+
+function profileDisplayName(profile = {}) {
+  return cleanText(profile.name) || fallbackUserName(profile.email);
+}
+
+function currentUserProfile() {
+  const id = currentUserId();
+  const email = currentUserEmail();
+  const saved = state.profiles.find((profile) => profile.id === id || (email && profile.email === email));
+
+  return normalizeUserProfile({
+    id,
+    email,
+    ...saved,
+  });
+}
+
+function isProfileOnline(profile = {}) {
+  if (!profile.online || !profile.lastSeen) return false;
+  const lastSeen = Date.parse(profile.lastSeen);
+  return Number.isFinite(lastSeen) && Date.now() - lastSeen < ONLINE_THRESHOLD_MS;
+}
+
+function renderUserProfiles() {
+  if (!elements.userProfile.panel) return;
+  const hasUser = Boolean(cloudSync.user);
+  elements.userProfile.panel.classList.toggle("hidden", !hasUser);
+  elements.userProfile.sidebarList?.classList.toggle("hidden", !hasUser);
+
+  if (!hasUser) return;
+
+  const current = currentUserProfile();
+  const isEditing = elements.userProfile.form?.contains(document.activeElement);
+  const isOnline = Boolean(cloudSync.user) || isProfileOnline(current);
+
+  elements.userProfile.currentName.textContent = profileDisplayName(current);
+  elements.userProfile.currentArea.textContent = current.area || "Sin área cargada";
+  elements.userProfile.currentDot.classList.toggle("is-online", isOnline);
+
+  if (!isEditing) {
+    elements.userProfile.name.value = current.name;
+    elements.userProfile.email.value = current.email;
+    elements.userProfile.phone.value = current.phone;
+    elements.userProfile.area.value = current.area;
+  }
+
+  const onlineProfiles = [
+    current,
+    ...state.profiles.filter((profile) => profile.id !== current.id && profile.email !== current.email),
+  ]
+    .filter((profile) => profile.id || profile.email)
+    .sort((a, b) => {
+      if (a.id === current.id) return -1;
+      if (b.id === current.id) return 1;
+      const aOnline = isProfileOnline(a);
+      const bOnline = isProfileOnline(b);
+      if (aOnline !== bOnline) return aOnline ? -1 : 1;
+      return profileDisplayName(a).localeCompare(profileDisplayName(b), "es");
+    });
+
+  elements.userProfile.onlineList.innerHTML = onlineProfiles.length
+    ? onlineProfiles
+        .map(
+          (profile) => `
+            <div class="online-user${profile.id === current.id || isProfileOnline(profile) ? " is-online" : " is-offline"}">
+              <span class="presence-dot${profile.id === current.id || isProfileOnline(profile) ? " is-online" : ""}" aria-hidden="true"></span>
+              <div>
+                <strong>${escapeHtml(profileDisplayName(profile))}${profile.id === current.id ? " (vos)" : ""}</strong>
+                <small>${escapeHtml(profile.area || profile.email || "Sin área")}</small>
+              </div>
+            </div>
+          `,
+        )
+        .join("")
+    : `<div class="online-user online-user-empty">Sin usuarios en línea.</div>`;
+  renderSidebarUsers();
+}
+
+function renderSidebarUsers() {
+  if (!elements.userProfile.sidebarList || !cloudSync.user) return;
+  const current = currentUserProfile();
+  const users = dashboardUserProfiles().filter(
+    (profile) => profile.id !== current.id && profile.email !== current.email,
+  );
+
+  elements.userProfile.sidebarList.innerHTML = "";
+
+  if (!users.length) {
+    elements.userProfile.sidebarList.innerHTML = `<div class="sidebar-users-empty">Sin otros usuarios.</div>`;
+    return;
+  }
+
+  users.forEach((profile) => {
+    const online = isProfileOnline(profile);
+    const key = profile.id || profile.email;
+    const button = document.createElement("button");
+    button.className = `sidebar-user-button ${online ? "is-online" : "is-offline"}`;
+    button.type = "button";
+    button.dataset.profileKey = key;
+    button.innerHTML = `
+      <span class="presence-dot${online ? " is-online" : ""}" aria-hidden="true"></span>
+      <span>
+        <strong>${escapeHtml(profileDisplayName(profile))}</strong>
+        <small>${escapeHtml(profile.area || profile.email || "Sin area")}</small>
+      </span>
+    `;
+    elements.userProfile.sidebarList.appendChild(button);
+  });
+}
+
+function profileByKey(key) {
+  return dashboardUserProfiles().find((profile) => profile.id === key || profile.email === key);
+}
+
+function openUserProfileDetail(key) {
+  const profile = profileByKey(key);
+  if (!profile) return;
+  const online = isProfileOnline(profile);
+
+  openModal({
+    eyebrow: "Usuario del sistema",
+    title: profileDisplayName(profile),
+    body: `
+      <div class="user-detail-card ${online ? "is-online" : "is-offline"}">
+        <div class="user-detail-head">
+          <span class="presence-dot${online ? " is-online" : ""}" aria-hidden="true"></span>
+          <div>
+            <strong>${escapeHtml(profileDisplayName(profile))}</strong>
+            <small>${online ? "En linea" : "Desconectado"}</small>
+          </div>
+        </div>
+        <div class="user-detail-grid">
+          <div class="user-detail-field">
+            <span>Area</span>
+            <strong>${escapeHtml(profile.area || "Sin area cargada")}</strong>
+          </div>
+          <div class="user-detail-field">
+            <span>Telefono</span>
+            <strong>${escapeHtml(profile.phone || "Sin telefono")}</strong>
+          </div>
+          <div class="user-detail-field is-wide">
+            <span>Email</span>
+            <strong>${escapeHtml(profile.email || "Sin email")}</strong>
+          </div>
+        </div>
+      </div>
+    `,
+  });
+}
+
+function handleSidebarUsersClick(event) {
+  const button = event.target.closest("[data-profile-key]");
+  if (!button) return;
+  openUserProfileDetail(button.dataset.profileKey);
 }
 
 function stateWithoutPhotos(source) {
@@ -1817,6 +2026,7 @@ function renderDashboard() {
   elements.metrics.accumulatedStockCost.textContent = formatCurrency.format(stockCost);
 
   renderLowStockSupplies(lowSupplies);
+  renderDashboardUsers();
 }
 
 function renderLowStockSupplies(rows = lowStockSupplies()) {
@@ -1839,6 +2049,65 @@ function renderLowStockSupplies(rows = lowStockSupplies()) {
       <span>${formatNumber.format(units)} ${escapeHtml(supplyUnit(item))}</span>
     `;
     elements.metrics.lowStockList.appendChild(row);
+  });
+}
+
+function dashboardUserProfiles() {
+  const current = currentUserProfile();
+  const profiles = [
+    current,
+    ...state.profiles.filter((profile) => profile.id !== current.id && profile.email !== current.email),
+  ].filter((profile) => profile.id || profile.email);
+
+  return profiles.sort((a, b) => {
+    if (a.id === current.id) return -1;
+    if (b.id === current.id) return 1;
+    const aOnline = a.id === current.id || isProfileOnline(a);
+    const bOnline = b.id === current.id || isProfileOnline(b);
+    if (aOnline !== bOnline) return aOnline ? -1 : 1;
+    return profileDisplayName(a).localeCompare(profileDisplayName(b), "es");
+  });
+}
+
+function renderDashboardUsers() {
+  if (!elements.metrics.usersList || !elements.metrics.usersCountLabel) return;
+  const users = dashboardUserProfiles();
+  elements.metrics.usersList.innerHTML = "";
+  elements.metrics.usersCountLabel.textContent = `${users.length} ${users.length === 1 ? "usuario" : "usuarios"}`;
+
+  if (!users.length) {
+    elements.metrics.usersList.innerHTML = `<div class="empty-state">Sin usuarios cargados.</div>`;
+    return;
+  }
+
+  const current = currentUserProfile();
+  users.forEach((profile) => {
+    const isCurrent = profile.id === current.id || (profile.email && profile.email === current.email);
+    const online = isCurrent || isProfileOnline(profile);
+    const card = document.createElement("article");
+    card.className = `dashboard-user-card ${online ? "is-online" : "is-offline"}`;
+    card.innerHTML = `
+      <div class="dashboard-user-main">
+        <span class="presence-dot${online ? " is-online" : ""}" aria-hidden="true"></span>
+        <div>
+          <strong>${escapeHtml(profileDisplayName(profile))}${isCurrent ? " (vos)" : ""}</strong>
+          <small>${online ? "En linea" : "Desconectado"}</small>
+        </div>
+      </div>
+      <div class="dashboard-user-data">
+        <span>Area</span>
+        <strong>${escapeHtml(profile.area || "Sin area cargada")}</strong>
+      </div>
+      <div class="dashboard-user-data">
+        <span>Telefono</span>
+        <strong>${escapeHtml(profile.phone || "Sin telefono")}</strong>
+      </div>
+      <div class="dashboard-user-data">
+        <span>Email</span>
+        <strong>${escapeHtml(profile.email || "Sin email")}</strong>
+      </div>
+    `;
+    elements.metrics.usersList.appendChild(card);
   });
 }
 
@@ -2056,6 +2325,7 @@ function cleanupConvertedQuotes() {
 function renderAll() {
   cleanupConvertedQuotes();
   renderSettings();
+  renderUserProfiles();
   renderSupplies();
   renderWood();
   renderFurniture();
@@ -2303,6 +2573,7 @@ async function importFirebaseModules() {
     getDocs: firestoreModule.getDocs,
     getFirestore: firestoreModule.getFirestore,
     onSnapshot: firestoreModule.onSnapshot,
+    setDoc: firestoreModule.setDoc,
     writeBatch: firestoreModule.writeBatch,
   };
 
@@ -2361,10 +2632,17 @@ function stopCloudListeners() {
 }
 
 function handleSignedOut() {
+  stopUserPresence();
+  closeUserProfilePanel();
   cloudSync.user = null;
   stopCloudListeners();
   setAuthScreen("required");
   elements.logout.classList.add("hidden");
+  if (elements.userProfile.panel) elements.userProfile.panel.classList.add("hidden");
+  if (elements.userProfile.sidebarList) {
+    elements.userProfile.sidebarList.classList.add("hidden");
+    elements.userProfile.sidebarList.innerHTML = "";
+  }
   updateSyncStatus("Iniciar sesión", "saving");
 }
 
@@ -2374,6 +2652,9 @@ function handleSignedIn(user) {
   elements.logout.classList.remove("hidden");
   updateSyncStatus("Conectando Firebase", "saving");
   startCloudListeners();
+  startUserPresence();
+  renderUserProfiles();
+  renderDashboardUsers();
 }
 
 function startCloudListeners() {
@@ -2395,6 +2676,25 @@ function startCloudListeners() {
 
     cloudSync.unsubscribes.push(unsubscribe);
   });
+
+  const profilesRef = collection(cloudSync.db, "businesses", cloudSync.businessId, USER_PROFILES_COLLECTION);
+  cloudSync.refs[USER_PROFILES_COLLECTION] = profilesRef;
+  cloudSync.unsubscribes.push(
+    onSnapshot(
+      profilesRef,
+      handleUserProfilesSnapshot,
+      (error) => {
+        console.error("Firebase profiles error", error);
+      },
+    ),
+  );
+}
+
+function handleUserProfilesSnapshot(snapshot) {
+  state.profiles = normalizeUserProfiles(cloudItemsFromSnapshot(snapshot));
+  persistLocalState();
+  renderUserProfiles();
+  renderDashboardUsers();
 }
 
 function handleCloudSnapshot(collectionName, snapshot) {
@@ -2435,6 +2735,86 @@ function handleCloudSnapshot(collectionName, snapshot) {
   renderAll();
   updateSyncStatus("Firebase conectado", "online");
 }
+
+function upsertLocalUserProfile(profile) {
+  const normalized = normalizeUserProfile(profile);
+  if (!normalized.id) return;
+  const previous = state.profiles.find((item) => item.id === normalized.id);
+  const next = previous
+    ? {
+        ...previous,
+        ...normalized,
+        name: normalized.name || previous.name,
+        phone: normalized.phone || previous.phone,
+        area: normalized.area || previous.area,
+      }
+    : normalized;
+  const exists = Boolean(previous);
+  state.profiles = exists
+    ? state.profiles.map((item) => (item.id === normalized.id ? next : item))
+    : [next, ...state.profiles];
+  persistLocalState();
+  renderUserProfiles();
+  renderDashboardUsers();
+}
+
+function userProfilePayload(overrides = {}) {
+  const now = new Date().toISOString();
+  const current = currentUserProfile();
+  return normalizeUserProfile({
+    ...current,
+    id: currentUserId(),
+    email: currentUserEmail(),
+    online: true,
+    lastSeen: now,
+    updatedAt: now,
+    ...overrides,
+  });
+}
+
+async function writeUserProfile(profile) {
+  if (!cloudSync.enabled || !cloudSync.user || !currentUserId() || !cloudSync.refs[USER_PROFILES_COLLECTION]) return;
+  const { doc, setDoc } = cloudSync.modules;
+  const profileRef = doc(cloudSync.refs[USER_PROFILES_COLLECTION], currentUserId());
+  await setDoc(profileRef, toCloudItem(profile), { merge: true });
+}
+
+async function touchUserPresence(online = true) {
+  if (!cloudSync.user) return;
+  const now = new Date().toISOString();
+  const payload = userProfilePayload({
+    online,
+    lastSeen: now,
+    updatedAt: now,
+  });
+  const presencePatch = {
+    id: currentUserId(),
+    email: currentUserEmail(),
+    online,
+    lastSeen: now,
+    updatedAt: now,
+  };
+
+  upsertLocalUserProfile(payload);
+
+  try {
+    await writeUserProfile(presencePatch);
+  } catch (error) {
+    console.error("Firebase presence error", error);
+  }
+}
+
+function startUserPresence() {
+  stopUserPresence();
+  touchUserPresence(true);
+  presenceHeartbeatTimer = setInterval(() => touchUserPresence(true), PRESENCE_HEARTBEAT_MS);
+}
+
+function stopUserPresence() {
+  clearInterval(presenceHeartbeatTimer);
+  presenceHeartbeatTimer = null;
+}
+
 function scheduleCloudSave() {
   if (!cloudSync.enabled || !cloudSync.user) return;
 
@@ -2546,6 +2926,7 @@ async function handleLogout() {
   if (!cloudSync.auth) return;
 
   try {
+    await touchUserPresence(false);
     await cloudSync.modules.signOut(cloudSync.auth);
   } catch (error) {
     console.error("Firebase logout error", error);
@@ -4414,6 +4795,34 @@ function handleBusinessSettingsSubmit(event) {
   }
 }
 
+async function handleUserProfileSubmit(event) {
+  event.preventDefault();
+  if (!cloudSync.user) return;
+
+  const payload = userProfilePayload({
+    name: cleanText(elements.userProfile.name.value),
+    phone: cleanText(elements.userProfile.phone.value),
+    area: cleanText(elements.userProfile.area.value),
+    online: true,
+    lastSeen: new Date().toISOString(),
+  });
+
+  upsertLocalUserProfile(payload);
+  elements.userProfile.message.textContent = "Perfil guardado.";
+
+  try {
+    await writeUserProfile(payload);
+  } catch (error) {
+    console.error("Firebase profile save error", error);
+    elements.userProfile.message.textContent = "No se pudo guardar en Firebase.";
+    return;
+  }
+
+  setTimeout(() => {
+    if (elements.userProfile.message) elements.userProfile.message.textContent = "";
+  }, 2400);
+}
+
 function handleProductionSubmit(event) {
   event.preventDefault();
   const furnitureId = elements.production.furniture.value;
@@ -5313,7 +5722,24 @@ function handleFurnitureLineClick(event) {
   }
 }
 
+function closeUserProfilePanel() {
+  const panel = elements.userProfile.panel;
+  if (panel?.open) panel.open = false;
+  syncUserProfileModalState();
+}
+
+function syncUserProfileModalState() {
+  document.body.classList.toggle("profile-modal-open", Boolean(elements.userProfile.panel?.open));
+}
+
+function closeUserProfilePanelFromOutside(event) {
+  const panel = elements.userProfile.panel;
+  if (!panel?.open || panel.contains(event.target)) return;
+  closeUserProfilePanel();
+}
+
 function handleDocumentClick(event) {
+  closeUserProfilePanelFromOutside(event);
   if (event.target.closest(".line-picker")) return;
   closeLineDropdowns();
 }
@@ -5381,6 +5807,18 @@ function bindEvents() {
   elements.auth.form.addEventListener("submit", handleLoginSubmit);
   elements.auth.passwordToggle.addEventListener("click", togglePasswordVisibility);
   elements.logout.addEventListener("click", handleLogout);
+  if (elements.userProfile.form) {
+    elements.userProfile.form.addEventListener("submit", handleUserProfileSubmit);
+  }
+  if (elements.userProfile.panel) {
+    elements.userProfile.panel.addEventListener("toggle", syncUserProfileModalState);
+  }
+  if (elements.userProfile.sidebarList) {
+    elements.userProfile.sidebarList.addEventListener("click", handleSidebarUsersClick);
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) touchUserPresence(true);
+  });
 
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -5510,7 +5948,12 @@ function bindEvents() {
   });
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !elements.modal.root.classList.contains("hidden")) closeModal();
+    if (event.key !== "Escape") return;
+    if (!elements.modal.root.classList.contains("hidden")) {
+      closeModal();
+      return;
+    }
+    closeUserProfilePanel();
   });
 
 }
