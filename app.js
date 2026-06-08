@@ -19,11 +19,11 @@ const QUOTE_VALIDITY_CONDITION = "El presente presupuesto tiene una validez de 7
 const STOCK_AVAILABILITY_CONDITION =
   "Los productos de stock o reventa quedan sujetos a disponibilidad al momento de confirmar la compra.";
 const CUSTOM_FURNITURE_CONDITIONS = [
-  "Para comenzar el trabajo se toma una seña del 50%.",
-  "El saldo se abona al momento de la entrega.",
-  "La entrega se realiza en 15 días.",
-  "El precio corresponde al diseño y medidas acordadas.",
-  "Cualquier modificación en diseño, medidas o distribución puede variar el valor final.",
+  "Para comenzar los productos a medida se toma una seña del 50% sobre el valor de esos productos.",
+  "El saldo correspondiente a los productos a medida se abona al momento de la entrega.",
+  "La entrega de los productos a medida se realiza en 15 días.",
+  "El precio de los productos a medida corresponde al diseño y medidas acordadas.",
+  "Cualquier modificación en diseño, medidas o distribución de los productos a medida puede variar el valor final.",
 ];
 const CUSTOM_QUOTE_CONDITIONS = [QUOTE_VALIDITY_CONDITION, ...CUSTOM_FURNITURE_CONDITIONS];
 const STOCK_QUOTE_CONDITIONS = [QUOTE_VALIDITY_CONDITION, STOCK_AVAILABILITY_CONDITION];
@@ -816,6 +816,18 @@ function documentLineName(line = {}) {
   return normalized.customFurniture || (normalized.furnitureId ? furnitureNameById(normalized.furnitureId) : "Mueble personalizado");
 }
 
+function documentLineTypeInfo(line = {}, document = {}) {
+  const normalized = normalizeDocumentLine(line);
+  const type = normalized.customFurniture
+    ? "A medida"
+    : "Producto";
+
+  return {
+    type,
+    origin: cleanText(document.quoteId) ? "Presupuestado" : "",
+  };
+}
+
 function documentLineUnitCost(line = {}) {
   const normalized = normalizeDocumentLine(line);
   if (normalized.customFurniture) return normalized.customCost;
@@ -837,6 +849,13 @@ function documentSubtotal(document = {}) {
   return documentItems(document).reduce((sum, line) => sum + documentLineSubtotal(line), 0);
 }
 
+function documentCustomSubtotal(document = {}) {
+  return documentItems(document).reduce((sum, line) => {
+    const normalized = normalizeDocumentLine(line);
+    return cleanText(normalized.customFurniture) ? sum + documentLineSubtotal(normalized) : sum;
+  }, 0);
+}
+
 function documentCostTotal(document = {}) {
   return documentItems(document).reduce((sum, line) => sum + documentLineCostTotal(line), 0);
 }
@@ -845,8 +864,15 @@ function documentHasCustomItems(document = {}) {
   return documentItems(document).some((line) => cleanText(line.customFurniture));
 }
 
+function documentHasProductItems(document = {}) {
+  return documentItems(document).some((line) => !cleanText(line.customFurniture));
+}
+
 function quotePdfConditions(quote = {}) {
-  return documentHasCustomItems(quote) ? CUSTOM_QUOTE_CONDITIONS : STOCK_QUOTE_CONDITIONS;
+  if (!documentHasCustomItems(quote)) return STOCK_QUOTE_CONDITIONS;
+  return documentHasProductItems(quote)
+    ? [QUOTE_VALIDITY_CONDITION, ...CUSTOM_FURNITURE_CONDITIONS, STOCK_AVAILABILITY_CONDITION]
+    : CUSTOM_QUOTE_CONDITIONS;
 }
 
 function invoicePdfConditions(invoice = {}) {
@@ -888,7 +914,7 @@ function quoteTotal(quote) {
 }
 
 function quoteDeposit(quote) {
-  return Math.max(0, documentSubtotal(quote)) * 0.5;
+  return Math.max(0, documentCustomSubtotal(quote)) * 0.5;
 }
 
 function quoteBalance(quote) {
@@ -1721,7 +1747,7 @@ function renderQuotes() {
 
   rows.forEach((item) => {
     const card = document.createElement("article");
-    card.className = "invoice-card quote-card clickable-row";
+    card.className = `invoice-card quote-card clickable-row${item.convertedInvoiceId ? " is-converted" : ""}`;
     card.dataset.viewQuote = item.id;
     card.innerHTML = `
       <div>
@@ -1731,18 +1757,23 @@ function renderQuotes() {
       </div>
       <div class="invoice-card-stats">
         <span>Precio <strong>${formatCurrency.format(documentSubtotal(item))}</strong></span>
-        <span>Seña 50% <strong>${formatCurrency.format(quoteDeposit(item))}</strong></span>
+        <span>Seña a medida <strong>${formatCurrency.format(quoteDeposit(item))}</strong></span>
         <span>Saldo <strong>${formatCurrency.format(quoteBalance(item))}</strong></span>
         <span>Envío <strong>${item.shippingRequired ? formatCurrency.format(quoteShippingCost(item)) : "No"}</strong></span>
         <span>Total <strong>${formatCurrency.format(quoteTotal(item))}</strong></span>
         <span>Margen <strong>${formatCurrency.format(quoteProfit(item))}</strong></span>
       </div>
       <p>${escapeHtml(item.shippingRequired ? item.location || "Envío sin ubicación" : "Retira / sin envío")}</p>
+        ${
+          item.convertedInvoiceId
+            ? `<span class="quote-converted-badge">En venta</span>`
+            : ""
+        }
       <div class="invoice-card-actions">
         <button class="table-action pdf" type="button" data-print-quote="${item.id}">PDF</button>
         ${
           item.convertedInvoiceId
-            ? `<span class="table-action is-static">En venta</span>`
+            ? ""
             : `<button class="table-action" type="button" data-convert-quote="${item.id}">Pasar a venta</button>`
         }
         <button class="table-action" type="button" data-edit-quote="${item.id}">Editar</button>
@@ -2005,7 +2036,25 @@ function renderWoodByThickness() {
   });
 }
 
+function cleanupConvertedQuotes() {
+  const invoiceIds = new Set(state.invoices.map((invoice) => invoice.id));
+  let changed = false;
+
+  state.quotes = state.quotes.map((quote) => {
+    if (!quote.convertedInvoiceId || invoiceIds.has(quote.convertedInvoiceId)) return quote;
+    changed = true;
+    return {
+      ...quote,
+      convertedInvoiceId: "",
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (changed) persistLocalState();
+}
+
 function renderAll() {
+  cleanupConvertedQuotes();
   renderSettings();
   renderSupplies();
   renderWood();
@@ -2728,19 +2777,19 @@ function documentLineTemplate(line, index, kind) {
         <select data-field="furnitureId">${documentFurnitureOptions(normalized.furnitureId)}</select>
       </label>
       <label>
-        <span>Personalizado</span>
-        <input data-field="customFurniture" type="text" value="${escapeHtml(normalized.customFurniture)}" placeholder="Ej: silla tapizada" />
-      </label>
-      <label>
-        <span>Costo</span>
-        <input data-field="customCost" type="number" min="0" step="0.01" value="${normalized.customCost}" />
-      </label>
-      <label>
         <span>Cantidad</span>
         <input data-field="qty" type="number" min="1" step="1" value="${normalized.qty}" />
       </label>
       <label>
-        <span>Precio unit.</span>
+        <span>Mueble personalizado</span>
+        <input data-field="customFurniture" type="text" value="${escapeHtml(normalized.customFurniture)}" placeholder="Ej: silla tapizada" />
+      </label>
+      <label>
+        <span>Costo estimado</span>
+        <input data-field="customCost" type="number" min="0" step="0.01" value="${normalized.customCost}" />
+      </label>
+      <label>
+        <span>Precio unitario</span>
         <input data-field="price" type="number" min="0" step="0.01" value="${normalized.price}" />
       </label>
       <button class="table-action delete" type="button" data-remove-document-item="${kind}:${index}">Quitar</button>
@@ -3469,7 +3518,7 @@ function showQuoteDetail(id) {
         <div class="detail-row"><strong>Teléfono</strong><span>${escapeHtml(item.phone || "-")}</span></div>
         <div class="detail-row"><strong>Pago</strong><span>${escapeHtml(item.payment || "-")}</span></div>
         <div class="detail-row"><strong>Precio presupuestado</strong><span>${formatCurrency.format(documentSubtotal(item))}</span></div>
-        <div class="detail-row"><strong>Seña 50%</strong><span>${formatCurrency.format(quoteDeposit(item))}</span></div>
+        <div class="detail-row"><strong>Seña a medida</strong><span>${formatCurrency.format(quoteDeposit(item))}</span></div>
         <div class="detail-row"><strong>Saldo</strong><span>${formatCurrency.format(quoteBalance(item))}</span></div>
         <div class="detail-row"><strong>Costo estimado</strong><span>${formatCurrency.format(quoteFurnitureCost(item))}</span></div>
         <div class="detail-row"><strong>Envío</strong><span>${item.shippingRequired ? formatCurrency.format(quoteShippingCost(item)) : "No"}</span></div>
@@ -3505,9 +3554,14 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
   const itemRowsHtml = invoiceItems
     .map((line) => {
       const normalized = normalizeDocumentLine(line);
+      const lineType = documentLineTypeInfo(normalized, invoice);
       return `
         <tr>
           <td>${escapeHtml(documentLineName(normalized))}</td>
+          <td>
+            <span class="item-type">${escapeHtml(lineType.type)}</span>
+            ${lineType.origin ? `<small class="item-origin">${escapeHtml(lineType.origin)}</small>` : ""}
+          </td>
           <td class="number">${formatNumber.format(normalized.qty)}</td>
           <td class="number">${formatCurrency.format(normalized.price)}</td>
           <td class="number">${formatCurrency.format(documentLineSubtotal(normalized))}</td>
@@ -3684,6 +3738,32 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
         text-transform: uppercase;
       }
 
+      .item-type {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: #edf5f2;
+        color: #285e61;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .item-type.service {
+        background: #f7f2e8;
+        color: #9a5b2f;
+      }
+
+      .item-origin {
+        display: block;
+        margin-top: 4px;
+        color: #667085;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
       td.number,
       th.number {
         text-align: right;
@@ -3823,6 +3903,7 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
         <thead>
           <tr>
             <th>Detalle</th>
+            <th>Tipo</th>
             <th class="number">Cantidad</th>
             <th class="number">Precio</th>
             <th class="number">Total</th>
@@ -3834,6 +3915,7 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
             invoice.shippingRequired
               ? `<tr>
                   <td>Envío${invoice.location ? ` - ${escapeHtml(invoice.location)}` : ""}</td>
+                  <td><span class="item-type service">Servicio</span></td>
                   <td class="number">1</td>
                   <td class="number">${formatCurrency.format(shippingCost)}</td>
                   <td class="number">${formatCurrency.format(shippingCost)}</td>
@@ -3936,12 +4018,12 @@ function printQuote(id) {
       title: "Presupuesto",
       number: quoteNumber(item),
       furnitureName: quoteFurnitureName(item),
-      depositLabel: "Seña 50%",
+      depositLabel: "Seña productos a medida (50%)",
       depositAmount: quoteDeposit,
       balanceAmount: quoteBalance,
       showDepositRows: isCustomQuote,
       footerText: isCustomQuote
-        ? "Presupuesto válido según diseño y medidas acordadas."
+        ? "Presupuesto válido para productos a medida según diseño y medidas acordadas."
         : "Presupuesto sujeto a disponibilidad al momento de confirmar la compra.",
       conditions: quotePdfConditions(item),
     }),
@@ -4747,6 +4829,15 @@ function deleteInvoice(id) {
   const item = state.invoices.find((entry) => entry.id === id);
   if (!item) return;
   state.invoices = state.invoices.filter((entry) => entry.id !== id);
+  state.quotes = state.quotes.map((quote) =>
+    quote.convertedInvoiceId === id
+      ? {
+          ...quote,
+          convertedInvoiceId: "",
+          updatedAt: new Date().toISOString(),
+        }
+      : quote,
+  );
   saveAndRefresh();
   resetInvoiceForm();
 }

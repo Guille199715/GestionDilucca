@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestión de Mueblería</title>
-    <link rel="stylesheet" href="styles.css?v=20260606-quote-actions" />
+    <title>DI LUCCA | Gestión de mueblería</title>
+    <link rel="stylesheet" href="styles.css?v=20260607-dilucca-dark-gallery" />
   </head>
   <body class="auth-loading">
     <div class="app-shell">
@@ -13,7 +13,7 @@
           <div class="brand">
             <span class="brand-mark">DL</span>
             <div>
-              <h1>DiLucca</h1>
+              <h1>DI LUCCA</h1>
               <p>Gestión de mueblería</p>
               <small class="sync-status" id="sync-status">Guardado local</small>
             </div>
@@ -608,22 +608,6 @@
           <form class="entry-form invoice-form hidden" id="quote-form" autocomplete="off">
             <input type="hidden" id="quote-id" />
             <label>
-              <span>Mueble cargado</span>
-              <select id="quote-furniture"></select>
-            </label>
-            <label>
-              <span>Cantidad</span>
-              <input id="quote-qty" type="number" min="1" step="1" value="1" />
-            </label>
-            <label>
-              <span>Mueble personalizado</span>
-              <input id="quote-custom-furniture" type="text" placeholder="Ej: placard a medida" />
-            </label>
-            <label>
-              <span>Costo estimado</span>
-              <input id="quote-custom-cost" type="number" min="0" step="0.01" value="0" />
-            </label>
-            <label>
               <span>Cliente</span>
               <input id="quote-client" type="text" required placeholder="Nombre del cliente" />
             </label>
@@ -634,10 +618,6 @@
             <label>
               <span>Fecha</span>
               <input id="quote-date" type="date" />
-            </label>
-            <label>
-              <span>Precio unitario</span>
-              <input id="quote-price" type="number" min="0" step="0.01" value="0" />
             </label>
             <label>
               <span>Envío</span>
@@ -671,6 +651,28 @@
                 <button class="secondary-button" type="button" id="add-quote-item">Agregar mueble</button>
               </div>
               <div class="document-line-list" id="quote-item-lines"></div>
+              <div class="document-line-row document-line-row-main">
+                <label>
+                  <span>Mueble cargado</span>
+                  <select id="quote-furniture"></select>
+                </label>
+                <label>
+                  <span>Cantidad</span>
+                  <input id="quote-qty" type="number" min="1" step="1" value="1" />
+                </label>
+                <label>
+                  <span>Mueble personalizado</span>
+                  <input id="quote-custom-furniture" type="text" placeholder="Ej: placard a medida" />
+                </label>
+                <label>
+                  <span>Costo estimado</span>
+                  <input id="quote-custom-cost" type="number" min="0" step="0.01" value="0" />
+                </label>
+                <label>
+                  <span>Precio unitario</span>
+                  <input id="quote-price" type="number" min="0" step="0.01" value="0" />
+                </label>
+              </div>
             </div>
             <div class="form-actions">
               <button class="primary-button" type="submit" id="quote-submit">Guardar presupuesto</button>
@@ -695,9 +697,9 @@
               <small>precio - costo</small>
             </article>
             <article class="metric-card">
-              <span>Seña 50%</span>
+              <span>Seña a medida</span>
               <strong id="quote-deposit-label">$0</strong>
-              <small>para comenzar</small>
+              <small>50% productos a medida</small>
             </article>
             <article class="metric-card">
               <span>Saldo</span>
@@ -941,7 +943,7 @@
         <span class="brand-mark">DL</span>
         <div>
           <p class="eyebrow">Acceso privado</p>
-          <h1>Ingresar a DiLucca</h1>
+          <h1>Ingresar a DI LUCCA</h1>
           <p>Ingresá usuario y contraseña para ingresar al sistema.</p>
         </div>
         <label>
@@ -992,6 +994,6 @@
     </div>
 
     <script src="firebase-config.js?v=20260602-invoice-stock-later"></script>
-    <script src="app.js?v=20260606-conditional-quote-terms"></script>
+    <script src="app.js?v=20260607-custom-deposit"></script>
   </body>
 </html>
