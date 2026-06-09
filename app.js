@@ -3025,6 +3025,7 @@ function filterFurnitureSupplyOptions(input) {
 
   dropdown.innerHTML = supplyOptionButtons(hiddenInput.value, input.value);
   dropdown.classList.remove("hidden");
+  row?.classList.add("is-dropdown-open");
   syncFurnitureDraftFromDom();
   updateFurnitureTotal();
 }
@@ -3041,6 +3042,7 @@ function filterFurnitureWoodOptions(input) {
 
   dropdown.innerHTML = woodOptionButtons(hiddenInput.value, input.value);
   dropdown.classList.remove("hidden");
+  row?.classList.add("is-dropdown-open");
   syncFurnitureDraftFromDom();
   updateFurnitureTotal();
 }
@@ -3059,6 +3061,7 @@ function selectFurnitureLineOption(button) {
   if (input) input.value = label;
   if (hiddenInput) hiddenInput.value = id;
   if (dropdown) dropdown.classList.add("hidden");
+  picker.closest(".line-row, .wood-line")?.classList.remove("is-dropdown-open");
 
   syncFurnitureDraftFromDom();
   updateFurnitureTotal();
@@ -3066,6 +3069,9 @@ function selectFurnitureLineOption(button) {
 
 function closeLineDropdowns() {
   $$(".line-dropdown").forEach((dropdown) => dropdown.classList.add("hidden"));
+  $$(".line-row.is-dropdown-open, .wood-line.is-dropdown-open").forEach((row) =>
+    row.classList.remove("is-dropdown-open"),
+  );
 }
 
 function handleFurnitureLineChange(event) {

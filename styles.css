@@ -2228,14 +2228,24 @@ tbody tr:hover td {
 .furniture-card-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
   gap: 8px;
   padding: 10px 14px 12px;
   border-top: 1px solid var(--line);
 }
 
 .furniture-card-actions .table-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  padding-inline: 8px;
+  height: 36px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0;
+  font-size: 0.92rem;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .invoice-card {
@@ -2403,10 +2413,18 @@ tbody tr:hover td {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr);
   gap: 16px;
   align-items: stretch;
+  isolation: isolate;
 }
 
 .line-panel {
+  position: relative;
+  z-index: 3;
   overflow: visible;
+}
+
+.builder-grid > .metric-card {
+  position: relative;
+  z-index: 1;
 }
 
 .builder-grid.is-third-party .line-panel {
@@ -2424,10 +2442,16 @@ tbody tr:hover td {
 }
 
 .line-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px;
   gap: 10px;
   align-items: end;
+}
+
+.line-row.is-dropdown-open,
+.wood-line.is-dropdown-open {
+  z-index: 20;
 }
 
 .line-row label {
@@ -2438,6 +2462,12 @@ tbody tr:hover td {
 
 .line-picker {
   position: relative;
+  z-index: 1;
+}
+
+.line-row.is-dropdown-open .line-picker,
+.wood-line.is-dropdown-open .line-picker {
+  z-index: 40;
 }
 
 .line-dropdown {
@@ -2445,7 +2475,7 @@ tbody tr:hover td {
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 35;
+  z-index: 80;
   display: grid;
   max-height: 260px;
   overflow-y: auto;
