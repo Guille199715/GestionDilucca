@@ -1167,8 +1167,8 @@ function invoiceStatusClass(invoice) {
     .replace(/[^a-z0-9]+/g, "-");
 }
 
-function invoicePaidAmount(invoice) {
-  return invoiceStatus(invoice) === "Cancelado" ? 0 : invoiceDeposit(invoice);
+function invoiceIncomeAmount(invoice) {
+  return invoiceStatus(invoice) === "Cancelado" ? 0 : Math.max(0, documentSubtotal(invoice));
 }
 
 function invoiceProfit(invoice) {
@@ -1203,7 +1203,7 @@ function dashboardSalesTotals(invoices) {
   return invoices.reduce(
     (totals, invoice) => ({
       count: totals.count + 1,
-      income: totals.income + invoicePaidAmount(invoice),
+      income: totals.income + invoiceIncomeAmount(invoice),
       profit: totals.profit + invoiceProfit(invoice),
     }),
     { count: 0, income: 0, profit: 0 },
@@ -4006,19 +4006,22 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
       }
 
       .invoice-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
-        gap: 24px;
-        align-items: start;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 20px;
+        align-items: flex-start;
         padding-bottom: 20px;
         border-bottom: 3px solid #d9aa45;
       }
 
       .company-header {
         display: grid;
-        grid-template-columns: 210px minmax(0, 1fr);
-        gap: 16px;
+        flex: 1 1 300px;
+        grid-template-columns: 112px minmax(0, 1fr);
+        gap: 14px;
         align-items: center;
+        min-width: 0;
       }
 
       .logo-frame {
@@ -4032,7 +4035,7 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
       .logo-frame img {
         display: block;
         width: 100%;
-        max-width: 190px;
+        max-width: 104px;
         height: auto;
       }
 
@@ -4041,6 +4044,7 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
         color: #1f2933;
         font-size: 24px;
         line-height: 1.15;
+        overflow-wrap: break-word;
       }
 
       .company-copy p {
@@ -4063,13 +4067,18 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
       }
 
       .invoice-heading {
+        flex: 0 1 360px;
+        min-width: 260px;
+        margin-left: auto;
         text-align: right;
       }
 
       .invoice-heading h1 {
         margin: 0;
-        font-size: 34px;
+        font-size: 30px;
+        line-height: 1.12;
         letter-spacing: 0;
+        overflow-wrap: break-word;
       }
 
       .invoice-heading p {
@@ -4231,6 +4240,27 @@ function buildInvoicePrintHtml(invoice, logoUrl, options = {}) {
         padding-top: 16px;
         border-top: 1px solid #dde3dc;
         text-align: center;
+      }
+
+      @media (max-width: 680px) {
+        .company-header,
+        .invoice-heading {
+          flex-basis: 100%;
+        }
+
+        .company-header {
+          grid-template-columns: 92px minmax(0, 1fr);
+        }
+
+        .logo-frame img {
+          max-width: 84px;
+        }
+
+        .invoice-heading {
+          min-width: 0;
+          margin-left: 0;
+          text-align: left;
+        }
       }
 
       @media print {
