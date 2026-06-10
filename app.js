@@ -1,4 +1,5 @@
 const STORAGE_KEY = "dilucca-management-v1";
+const PENDING_SYNC_KEY = `${STORAGE_KEY}-pending-sync`;
 const INVOICE_LOGO_PATH = "assets/di-lucca-logo-pdf.png";
 const FIREBASE_SDK_VERSION = "12.14.0";
 const DATA_COLLECTIONS = ["supplies", "wood", "furniture", "invoices", "quotes", "orders", "tasks", "production"];
@@ -143,6 +144,7 @@ let orderDraft = [];
 let currentOrderId = "";
 let invoiceExtraItems = [];
 let quoteExtraItems = [];
+let invoiceMainLineCostSnapshot = null;
 let modalConfirmAction = null;
 let currentFurniturePhoto = "";
 let storageWarningShown = false;
@@ -163,7 +165,7 @@ const cloudSync = {
   modules: {},
   businessId: "",
   unsubscribes: [],
-  needsSave: false,
+  needsSave: hasPendingCloudSave(),
 };
 
 const formatCurrency = new Intl.NumberFormat("es-AR", {
@@ -523,6 +525,25 @@ function replaceState(nextState) {
   });
 }
 
+function mergeCollectionById(remoteItems = [], localItems = []) {
+  const merged = new Map();
+  remoteItems.forEach((item) => {
+    if (item?.id) merged.set(item.id, item);
+  });
+  localItems.forEach((item) => {
+    if (item?.id) merged.set(item.id, item);
+  });
+  return [...merged.values()];
+}
+
+function mergeRemoteWithLocalState(remoteState, localState) {
+  const merged = normalizeState(remoteState);
+  FIREBASE_COLLECTIONS.forEach((collectionName) => {
+    merged[collectionName] = mergeCollectionById(remoteState[collectionName], localState[collectionName]);
+  });
+  return merged;
+}
+
 function hasStateData(source = state) {
   return DATA_COLLECTIONS.some((collectionName) => source[collectionName]?.length);
 }
@@ -756,8 +777,35 @@ function persistLocalState() {
   }
 }
 
+function hasPendingCloudSave() {
+  try {
+    return localStorage.getItem(PENDING_SYNC_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markPendingCloudSave() {
+  cloudSync.needsSave = true;
+  try {
+    localStorage.setItem(PENDING_SYNC_KEY, "1");
+  } catch {
+    // Local persistence already shows its own warning; this flag is a best-effort sync hint.
+  }
+}
+
+function clearPendingCloudSave() {
+  cloudSync.needsSave = false;
+  try {
+    localStorage.removeItem(PENDING_SYNC_KEY);
+  } catch {
+    // No action needed; cloud data was written successfully.
+  }
+}
+
 function saveState() {
   persistLocalState();
+  if (cloudSync.enabled && cloudSync.user) markPendingCloudSave();
   scheduleCloudSave();
 }
 
@@ -986,18 +1034,23 @@ function createDocumentLine() {
     furnitureId: "",
     customFurniture: "",
     customCost: 0,
+    unitCost: 0,
+    costLocked: false,
     qty: 1,
     price: 0,
   };
 }
 
 function normalizeDocumentLine(line = {}) {
+  const source = line || {};
   return {
-    furnitureId: cleanText(line.furnitureId),
-    customFurniture: cleanText(line.customFurniture || line.furnitureName),
-    customCost: Math.max(0, Number(line.customCost || 0)),
-    qty: Math.max(1, Number(line.qty || 1)),
-    price: Math.max(0, Number(line.price || line.unitPrice || 0)),
+    furnitureId: cleanText(source.furnitureId),
+    customFurniture: cleanText(source.customFurniture || source.furnitureName),
+    customCost: Math.max(0, Number(source.customCost || 0)),
+    unitCost: Math.max(0, Number(source.unitCost ?? source.cost ?? 0)),
+    costLocked: Boolean(source.costLocked || source.unitCostLocked || source.costSnapshot),
+    qty: Math.max(1, Number(source.qty || 1)),
+    price: Math.max(0, Number(source.price || source.unitPrice || 0)),
   };
 }
 
@@ -1006,15 +1059,16 @@ function documentLineHasItem(line = {}) {
 }
 
 function documentItems(document = {}) {
-  const savedItems = Array.isArray(document.items) ? document.items.map(normalizeDocumentLine).filter(documentLineHasItem) : [];
+  const source = document || {};
+  const savedItems = Array.isArray(source.items) ? source.items.map(normalizeDocumentLine).filter(documentLineHasItem) : [];
   if (savedItems.length) return savedItems;
 
   const legacyLine = normalizeDocumentLine({
-    furnitureId: document.furnitureId,
-    customFurniture: document.customFurniture || document.furnitureName,
-    customCost: document.customCost,
-    qty: document.qty || 1,
-    price: Number(document.price || 0),
+    furnitureId: source.furnitureId,
+    customFurniture: source.customFurniture || source.furnitureName,
+    customCost: source.customCost,
+    qty: source.qty || 1,
+    price: Number(source.price || 0),
   });
 
   return documentLineHasItem(legacyLine) ? [legacyLine] : [];
@@ -1037,11 +1091,52 @@ function documentLineTypeInfo(line = {}, document = {}) {
   };
 }
 
-function documentLineUnitCost(line = {}) {
+function currentDocumentLineUnitCost(line = {}) {
   const normalized = normalizeDocumentLine(line);
   if (normalized.customFurniture) return normalized.customCost;
   const furniture = furnitureById(normalized.furnitureId);
   return furniture ? furnitureTotal(furniture) : normalized.customCost;
+}
+
+function documentLineUnitCost(line = {}) {
+  const normalized = normalizeDocumentLine(line);
+  return normalized.costLocked ? normalized.unitCost : currentDocumentLineUnitCost(normalized);
+}
+
+function sameDocumentLineItem(line = {}, previousLine = {}) {
+  const normalized = normalizeDocumentLine(line);
+  const previous = normalizeDocumentLine(previousLine);
+  if (normalized.furnitureId || previous.furnitureId) {
+    return normalized.furnitureId && normalized.furnitureId === previous.furnitureId && !normalized.customFurniture && !previous.customFurniture;
+  }
+  return Boolean(
+    normalized.customFurniture &&
+      normalized.customFurniture === previous.customFurniture &&
+      normalized.customCost === previous.customCost,
+  );
+}
+
+function preserveFrozenLineCost(line = {}, previousLine = {}) {
+  const normalized = normalizeDocumentLine(line);
+  const previous = normalizeDocumentLine(previousLine);
+  if (!previous.costLocked || !sameDocumentLineItem(normalized, previous)) return normalized;
+  return {
+    ...normalized,
+    unitCost: previous.unitCost,
+    costLocked: true,
+  };
+}
+
+function freezeDocumentLineCosts(items = [], previousItems = []) {
+  return items.map((line, index) => {
+    const preserved = preserveFrozenLineCost(line, previousItems[index]);
+    if (preserved.costLocked) return preserved;
+    return {
+      ...preserved,
+      unitCost: currentDocumentLineUnitCost(preserved),
+      costLocked: true,
+    };
+  });
 }
 
 function documentLineSubtotal(line = {}) {
@@ -1467,6 +1562,16 @@ function sortProduction(a, b) {
   const dateA = productionIsDone(a) ? a.completedAt || a.updatedAt || a.createdAt : a.createdAt;
   const dateB = productionIsDone(b) ? b.completedAt || b.updatedAt || b.createdAt : b.createdAt;
   return new Date(dateB || 0) - new Date(dateA || 0);
+}
+
+function sortInvoicesByDate(a, b) {
+  const dateA = cleanText(a.date) || cleanText(a.createdAt).slice(0, 10);
+  const dateB = cleanText(b.date) || cleanText(b.createdAt).slice(0, 10);
+  return (
+    dateB.localeCompare(dateA) ||
+    new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0) ||
+    cleanText(b.id).localeCompare(cleanText(a.id))
+  );
 }
 
 function invoiceNumber(invoice) {
@@ -1906,7 +2011,7 @@ function renderFurniture() {
 }
 
 function renderInvoices() {
-  const rows = state.invoices.filter(matchesInvoiceSearch);
+  const rows = [...state.invoices].filter(matchesInvoiceSearch).sort(sortInvoicesByDate);
   elements.invoices.table.innerHTML = "";
   elements.invoices.count.textContent = `${rows.length} ventas`;
 
@@ -2322,8 +2427,31 @@ function cleanupConvertedQuotes() {
   if (changed) persistLocalState();
 }
 
+function ensureInvoiceCostSnapshots() {
+  let changed = false;
+
+  state.invoices = state.invoices.map((invoice) => {
+    const items = documentItems(invoice);
+    if (!items.length || items.every((line) => normalizeDocumentLine(line).costLocked)) return invoice;
+    changed = true;
+    const frozenItems = freezeDocumentLineCosts(items);
+    return {
+      ...invoice,
+      furnitureId: frozenItems[0]?.furnitureId || "",
+      items: frozenItems,
+      price: documentSubtotal({ items: frozenItems }),
+    };
+  });
+
+  return changed;
+}
+
 function renderAll() {
   cleanupConvertedQuotes();
+  if (ensureInvoiceCostSnapshots()) {
+    persistLocalState();
+    scheduleCloudSave();
+  }
   renderSettings();
   renderUserProfiles();
   renderSupplies();
@@ -2648,6 +2776,7 @@ function handleSignedOut() {
 
 function handleSignedIn(user) {
   cloudSync.user = user;
+  cloudSync.needsSave = hasPendingCloudSave();
   setAuthScreen("none");
   elements.logout.classList.remove("hidden");
   updateSyncStatus("Conectando Firebase", "saving");
@@ -2716,13 +2845,31 @@ function handleCloudSnapshot(collectionName, snapshot) {
   });
 
   if (!cloudSync.ready) {
+    const hasPendingLocalSave = cloudSync.needsSave || hasPendingCloudSave();
     cloudSync.ready = true;
 
+    if (hasPendingLocalSave && hasStateData(state)) {
+      const mergedState = mergeRemoteWithLocalState(remoteState, state);
+      replaceState(mergedState);
+      persistLocalState();
+      renderAll();
+      updateSyncStatus("Subiendo cambios locales", "saving");
+      writeStateToCloud();
+      return;
+    }
+
     if (!hasStateData(remoteState) && hasStateData(state)) {
+      markPendingCloudSave();
       updateSyncStatus("Subiendo datos locales", "saving");
       writeStateToCloud();
       return;
     }
+  }
+
+  if (cloudSync.needsSave && !cloudSync.saving) {
+    updateSyncStatus("Guardando cambios", "saving");
+    scheduleCloudSave();
+    return;
   }
 
   if (cloudSync.saving) {
@@ -2819,7 +2966,13 @@ function scheduleCloudSave() {
   if (!cloudSync.enabled || !cloudSync.user) return;
 
   if (!cloudSync.ready) {
+    markPendingCloudSave();
     updateSyncStatus("Conectando Firebase", "saving");
+    return;
+  }
+
+  if (cloudSync.saving) {
+    markPendingCloudSave();
     return;
   }
 
@@ -2869,9 +3022,11 @@ async function writeStateToCloud() {
       await syncCollectionToCloud(collectionName, stateToSave);
     }
 
+    if (!cloudSync.needsSave) clearPendingCloudSave();
     updateSyncStatus("Firebase conectado", "online");
   } catch (error) {
     console.error("Firebase save error", error);
+    markPendingCloudSave();
     updateSyncStatus("Error al guardar", "error");
   } finally {
     cloudSync.saving = false;
@@ -3157,6 +3312,42 @@ function documentFurnitureOptions(selectedId = "") {
 
 function documentLineTemplate(line, index, kind) {
   const normalized = normalizeDocumentLine(line);
+  if (kind === "invoice") {
+    const itemField = normalized.customFurniture
+      ? `
+        <label>
+          <span>Mueble personalizado</span>
+          <input data-field="customFurniture" type="text" value="${escapeHtml(normalized.customFurniture)}" />
+        </label>
+        <label>
+          <span>Costo unitario</span>
+          <input data-field="customCost" type="number" min="0" step="0.01" value="${normalized.customCost}" />
+        </label>
+      `
+      : `
+        <label>
+          <span>Mueble</span>
+          <select data-field="furnitureId">${documentFurnitureOptions(normalized.furnitureId)}</select>
+          <input data-field="customFurniture" type="hidden" value="" />
+          <input data-field="customCost" type="hidden" value="0" />
+        </label>
+    `;
+    return `
+      <div class="document-line-row invoice-document-line-row${normalized.customFurniture ? " is-custom" : ""}" data-document-line="${kind}" data-index="${index}">
+        ${itemField}
+        <label>
+          <span>Cantidad</span>
+          <input data-field="qty" type="number" min="1" step="1" value="${normalized.qty}" />
+        </label>
+        <label>
+          <span>Precio unitario</span>
+          <input data-field="price" type="number" min="0" step="0.01" value="${normalized.price}" />
+        </label>
+        <button class="table-action delete" type="button" data-remove-document-item="${kind}:${index}">Quitar</button>
+      </div>
+    `;
+  }
+
   return `
     <div class="document-line-row" data-document-line="${kind}" data-index="${index}">
       <label>
@@ -3192,15 +3383,16 @@ function renderDocumentExtraItems(kind) {
 
 function syncDocumentExtraItems(kind) {
   const target = kind === "invoice" ? elements.invoices.itemLines : elements.quotes.itemLines;
+  const previousItems = kind === "invoice" ? invoiceExtraItems : quoteExtraItems;
   const rows = Array.from(target.querySelectorAll("[data-document-line]"));
-  const nextItems = rows.map((row) =>
-    normalizeDocumentLine({
+  const nextItems = rows.map((row, index) =>
+    preserveFrozenLineCost({
       furnitureId: row.querySelector('[data-field="furnitureId"]')?.value || "",
       customFurniture: row.querySelector('[data-field="customFurniture"]')?.value || "",
       customCost: row.querySelector('[data-field="customCost"]')?.value || 0,
       qty: row.querySelector('[data-field="qty"]')?.value || 1,
       price: row.querySelector('[data-field="price"]')?.value || 0,
-    }),
+    }, previousItems[index]),
   );
 
   if (kind === "invoice") {
@@ -3211,11 +3403,14 @@ function syncDocumentExtraItems(kind) {
 }
 
 function mainInvoiceLineFromForm() {
-  return normalizeDocumentLine({
-    furnitureId: elements.invoices.furniture.value,
-    qty: readPositiveInteger(elements.invoices.qty),
-    price: readNumber(elements.invoices.price),
-  });
+  return preserveFrozenLineCost(
+    {
+      furnitureId: elements.invoices.furniture.value,
+      qty: readPositiveInteger(elements.invoices.qty),
+      price: readNumber(elements.invoices.price),
+    },
+    invoiceMainLineCostSnapshot,
+  );
 }
 
 function mainQuoteLineFromForm() {
@@ -4635,7 +4830,7 @@ function handleInvoiceSubmit(event) {
   const id = elements.invoices.id.value;
   const existingInvoice = id ? state.invoices.find((item) => item.id === id) : null;
   const shippingRequired = elements.invoices.shippingRequired.value === "yes";
-  const items = collectInvoiceItemsFromForm();
+  const items = freezeDocumentLineCosts(collectInvoiceItemsFromForm(), documentItems(existingInvoice));
 
   if (!items.length) {
     alert("Agregá al menos un mueble a la venta.");
@@ -4662,6 +4857,7 @@ function handleInvoiceSubmit(event) {
     stockDiscounted: Boolean(existingInvoice?.stockDiscounted),
     stockDiscountedAt: existingInvoice?.stockDiscountedAt || "",
     createdAt: id ? getExistingCreatedAt(state.invoices, id) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 
   if (!id) {
@@ -5138,6 +5334,7 @@ function editInvoice(id) {
   openInvoiceComposer();
   const items = documentItems(item);
   const mainLine = items[0] || createDocumentLine();
+  invoiceMainLineCostSnapshot = mainLine;
   invoiceExtraItems = items.slice(1);
   renderInvoiceFurnitureOptions(mainLine.furnitureId);
   renderDocumentExtraItems("invoice");
@@ -5318,7 +5515,7 @@ function requestDeleteQuote(id) {
 }
 
 function quoteToInvoicePayload(quote) {
-  const items = documentItems(quote);
+  const items = freezeDocumentLineCosts(documentItems(quote));
   return {
     id: createId("invoice"),
     quoteId: quote.id,
@@ -5339,6 +5536,7 @@ function quoteToInvoicePayload(quote) {
     stockDiscounted: false,
     stockDiscountedAt: "",
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -5416,6 +5614,7 @@ function resetInvoiceForm() {
   elements.invoices.status.value = "Pendiente";
   elements.invoices.shippingRequired.value = "no";
   elements.invoices.shippingPrice.value = 0;
+  invoiceMainLineCostSnapshot = null;
   invoiceExtraItems = [];
   renderDocumentExtraItems("invoice");
   elements.invoices.submit.textContent = "Guardar venta";
