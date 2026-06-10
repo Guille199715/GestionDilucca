@@ -1319,12 +1319,16 @@ select:focus {
 }
 
 #invoice-form label:has(#invoice-notes) {
-  order: 10;
+  order: 11;
 }
 
 #invoice-form label:has(#invoice-furniture),
 #quote-form label:has(#quote-furniture) {
   order: 21;
+}
+
+#invoice-form label:has(#invoice-furniture) {
+  grid-column: span 2;
 }
 
 #invoice-form label:has(#invoice-qty),
@@ -1345,8 +1349,12 @@ select:focus {
   order: 25;
 }
 
+#invoice-form label:has(#invoice-price) {
+  grid-column: span 2;
+}
+
 #invoice-form label:has(#invoice-deposit) {
-  order: 26;
+  order: 10;
 }
 
 #invoice-form .document-lines,
@@ -1706,11 +1714,21 @@ tbody tr:hover td {
 .document-lines-title {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px;
 }
 
 .document-lines-title span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+#invoice-form .document-lines-title {
+  justify-content: flex-end;
+}
+
+#invoice-form .document-lines-title span {
   display: none;
 }
 
@@ -1737,6 +1755,23 @@ tbody tr:hover td {
   background: transparent;
 }
 
+.invoice-document-line-row {
+  grid-template-columns:
+    minmax(240px, 2fr)
+    minmax(100px, 1fr)
+    minmax(150px, 2fr)
+    minmax(92px, 92px);
+}
+
+.invoice-document-line-row.is-custom {
+  grid-template-columns:
+    minmax(220px, 2fr)
+    minmax(130px, 1fr)
+    minmax(100px, 1fr)
+    minmax(150px, 2fr)
+    minmax(92px, 92px);
+}
+
 .document-line-row-main {
   padding-top: 0;
   border-top: 0;
@@ -1749,6 +1784,7 @@ tbody tr:hover td {
 
 .document-line-row > .table-action {
   width: 100%;
+  min-height: 43px;
 }
 
 .document-line-row label {
